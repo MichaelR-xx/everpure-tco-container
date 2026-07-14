@@ -4764,7 +4764,39 @@ function resetGuiToDefaults(delayMs) {
     });
   }
 
-  function downloadComparePdf(panelEl) {
+  // Render an HTML document to a real PDF server-side and download it directly — no
+  // browser print prompt. Also archives a copy to the Downloads view (render-pdf does
+  // that). Falls back to the print dialog only if the server has no PDF renderer.
+  async function downloadPdfDoc(doc, fname) {
+    const safe = String(fname || "export").replace(/[^\w.\-]+/g, "_") || "export";
+    try {
+      const res = await fetch("/api/tco/render-pdf", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ html: doc, name: safe, customer: customerSelect.value }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.pdf_b64) {
+        const bin = atob(data.pdf_b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+        const a = document.createElement("a");
+        a.href = url; a.download = data.filename || (safe + ".pdf");
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+        showMsgs(detailMsgs, ["✓ PDF downloaded (a copy was saved to Downloads)."], "success");
+        if (typeof viewMode !== "undefined" && viewMode === "downloads") loadDownloads();
+        return true;
+      }
+    } catch (e) { /* fall through to the print dialog */ }
+    const w = window.open("", "_blank");
+    if (!w) { showMsgs(detailMsgs, ["Popup blocked — allow popups to export the PDF."], "error"); return false; }
+    w.document.write(doc); w.document.close(); w.focus();
+    setTimeout(() => { w.print(); }, 400);
+    return true;
+  }
+
+  async function downloadComparePdf(panelEl) {
     if (!panelEl) return;
     // Clone the panel and strip the action buttons / group selector from the print.
     const clone = panelEl.cloneNode(true);
@@ -4787,13 +4819,7 @@ function resetGuiToDefaults(delayMs) {
       ${cust ? `<div style="font-size:1rem;font-weight:800;margin-bottom:10px;">TCO Comparison — ${escHtml(cust)}</div>` : ""}
       ${clone.innerHTML}
       </body></html>`;
-    const w = window.open("", "_blank");
-    if (!w) { showMsgs(detailMsgs, ["Popup blocked — allow popups to export the PDF."], "error"); return; }
-    w.document.write(doc);
-    w.document.close();
-    w.focus();
-    setTimeout(() => { w.print(); }, 350);
-    archiveGraph("comparison", doc);   // save a copy to S3
+    await downloadPdfDoc(doc, `comparison_${cust || "tco"}`);
   }
 
   async function deleteRun(r) {
@@ -5082,7 +5108,7 @@ function resetGuiToDefaults(delayMs) {
     URL.revokeObjectURL(url);
   }
 
-  function downloadGraphPdf() {
+  async function downloadGraphPdf() {
     // Capture the entire Graphs view — the report heading (customer/scenario/params/
     // regions) is already the first block, so no extra print header is needed.
     const graphHtml = $("tco-view-graphs").innerHTML;
@@ -5109,15 +5135,8 @@ function resetGuiToDefaults(delayMs) {
       </style></head><body>
       ${graphHtml}
       </body></html>`;
-    const w = window.open("", "_blank");
-    if (!w) { showMsgs(detailMsgs, ["Popup blocked — allow popups to export the PDF."], "error"); return; }
-    w.document.write(doc);
-    w.document.close();
-    w.focus();
-    setTimeout(() => { w.print(); }, 350);
-    // Archive a copy of the printed document to S3.
     const genStamp = selectedRun ? String(selectedRun.tco_id || "").split("_").pop() : "";
-    archiveGraph(`graph_${selectedRun ? selectedRun.scenario : "tco"}_${genStamp}`, doc);
+    await downloadPdfDoc(doc, `graph_${selectedRun ? selectedRun.scenario : "tco"}_${genStamp}`);
   }
 
   // Persist a copy of a downloaded graph/comparison export to S3.
