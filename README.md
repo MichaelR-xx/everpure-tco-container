@@ -11,6 +11,10 @@ volume), parallelizes the analysis, and paginates the large data tables.
 
 ---
 
+> **Full deployment guide:** see [DEPLOYMENT.md](DEPLOYMENT.md) — installing Docker
+> (macOS / Windows / Linux), build & run, configuration, operations, native (no-Docker)
+> deployment, and troubleshooting.
+
 ## Quick start (Docker — Linux / macOS / Windows)
 
 ```bash
