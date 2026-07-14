@@ -1,0 +1,41 @@
+{
+    "V20AZN": {
+        "pscSku": "V20AZN",
+        "usable_limit_iops": 150000,
+        "mbps_sku_iops": {
+            "2048": 150000,
+            "1024": 75000,
+            "800": 50000
+        },
+        "index": 200,
+        "cost_mode": {
+            "on demand": {
+                "capacity_cost_normal": 0.1689453,
+                "capacity_cost_encrypt": 0.33203125,
+                "per_mbps_cost_per_array": 3.0
+            },
+            "3Year Reserve": {
+                "capacity_cost_normal": 0.135156,
+                "capacity_cost_encrypt": 0.270312,
+                "per_mbps_cost_per_array": 2.4
+            }
+        },
+        "overprovisioned_iops_rate": 2.8,
+        "overprovisioned_mbps_rate": 9.0,
+        "minimum_capacity": 30720,
+        "min_drr_normal": 2.0,
+        "max_raw_capacity_size_GiB": 238202.0,
+        "azure_supported_regions": [
+            "eastus",
+            "eastus2",
+            "centralus",
+            "southcentralus",
+            "westus2",
+            "westus3",
+            "uksouth",
+            "westeurope",
+            "northeurope",
+            "australiaeast"
+        ]
+    }
+}

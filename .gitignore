@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local scratch / notes
+scratchpad/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Deployment storage setting (may contain AWS secrets)
+storage_config.json
+
+# Local data volume (if bind-mounted here)
+data/
+EverpureTCO/
+
+# leftover from copy
+README.md.orig

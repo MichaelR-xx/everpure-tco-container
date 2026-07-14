@@ -1,0 +1,17 @@
+
+> is this claude conversation saved for when I get back into claude
+
+Yes — Claude Code saves your conversations locally, so this one will be available when you come back.
+
+How to get back into it:
+- claude --continue (or claude -c) — resumes the most recent session in this project directory, picking up right where we are now.
+- claude --resume (or claude -r) — shows a list of past sessions in this project so you can pick this specific one.
+
+Where it's stored: transcripts are kept as files under your ~/.claude/projects/ folder (for this repo, the path is C:\Users\micha\.claude\projects\C--Users-micha-PycharmProjects-EC-Azure-Viz-Tool\). They live on your machine, not just in memory, so closing the terminal won't lose them.
+
+A couple of honest caveats:
+- This is local to this machine and this project directory. If you cd somewhere else or switch computers, --continue/--resume won't find it.
+- The full back-scroll is preserved, but for very long sessions Claude Code compacts older context into a summary to fit the window — so I'll retain the gist and recent detail, though not necessarily every word of early messages.
+- It's separate from git. The conversation being saved is not the same as your code being committed — the file edits are on disk but still uncommitted (only the Init commit exists).
+
+So: reopen, run claude -c in this folder, and we continue. Want me to commit the current changes before you go, so there's a code restore point too?

@@ -1,0 +1,17 @@
+# Everpure Azure Managed Disk Visualization Tool — Python dependencies
+# Install with:  pip install -r requirements.txt
+# (numpy is pulled in automatically by pandas.)
+
+Flask==3.1.3
+boto3==1.43.36
+pandas==3.0.3
+requests==2.34.2
+
+# Production WSGI server used by the container image (Flask's built-in server is
+# for development only). Cross-platform, pure-Python.
+waitress==3.0.2
+
+# Optional — only needed for native PDF export via WeasyPrint. Not required: the
+# app falls back to headless Chromium/Chrome/Edge (installed in the container image)
+# for PDF generation. On Windows WeasyPrint also needs the GTK runtime.
+# weasyprint==69.0

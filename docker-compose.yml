@@ -1,0 +1,32 @@
+# Everpure TCO tool — one-command run.
+#   docker compose up --build
+# Then open http://localhost:5000
+#
+# Data (uploads, parsed runs, generated TCOs) is persisted in the named volume
+# "everpure_data" (mounted at /data). Delete it with `docker compose down -v`.
+
+services:
+  everpure-tco:
+    build: .
+    image: everpure-tco:latest
+    ports:
+      - "5000:5000"
+    volumes:
+      - everpure_data:/data
+    environment:
+      # Local Storage on the mounted volume — no AWS account needed.
+      EVERPURE_STORAGE: local
+      EVERPURE_LOCAL_ROOT: /data
+      # CHANGE THIS to a long random string before any real use.
+      FLASK_SECRET_KEY: change-me-in-production
+      AZURE_PRICE_WORKERS: "8"
+      # To use an S3 backend instead, comment out EVERPURE_STORAGE=local above and set:
+      #   EVERPURE_STORAGE: others3
+      #   EVERPURE_S3_BUCKET: your-bucket
+      #   AWS_ACCESS_KEY_ID: ...
+      #   AWS_SECRET_ACCESS_KEY: ...
+      #   AWS_DEFAULT_REGION: us-east-1
+    restart: unless-stopped
+
+volumes:
+  everpure_data:
