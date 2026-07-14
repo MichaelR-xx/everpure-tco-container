@@ -49,5 +49,6 @@ VOLUME ["/data"]
 EXPOSE 5000
 
 # Serve with waitress (production WSGI server), not Flask's dev server.
+# `waitress-serve` is the console script installed by the waitress package.
 ENTRYPOINT ["tini", "--"]
-CMD ["python", "-m", "waitress", "--host=0.0.0.0", "--port=5000", "--threads=8", "app:app"]
+CMD ["waitress-serve", "--host=0.0.0.0", "--port=5000", "--threads=8", "app:app"]
