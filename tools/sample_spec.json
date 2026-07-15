@@ -13,7 +13,7 @@
       "vnets": ["vnet-01"],
       "scale_by": "instance",
       "num_instances_in_each_subscription_zone_combination": 36,
-      "minimum_pscd_sku": "V20MP2R2",
+      "minimum_ec_sku": "V20MP2R2",
       "drive_config": [
         {"drive_type": "Premium_LRS", "root": true,  "capacityGB": 128},
         {"drive_type": "Premium_LRS", "root": false, "capacityGB": 10465},
@@ -32,7 +32,7 @@
       "vnets": ["vnet-01"],
       "scale_by": "instance",
       "num_instances_in_each_subscription_zone_combination": 1,
-      "minimum_pscd_sku": "V20MP2R2",
+      "minimum_ec_sku": "V20MP2R2",
       "drive_config": [
         {"drive_type": "Premium_LRS",     "root": true,  "capacityGB": 80},
         {"drive_type": "Premium_LRS",     "root": false, "capacityGB": 14432},
@@ -55,7 +55,7 @@
       "vnets": ["vnet-01"],
       "scale_by": "instance",
       "num_instances_in_each_subscription_zone_combination": 2,
-      "minimum_pscd_sku": "V20MP2R2",
+      "minimum_ec_sku": "V20MP2R2",
       "drive_config": [
         {"drive_type": "Premium_LRS",   "root": true,  "capacityGB": 80},
         {"drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 14950, "iops": 16000, "mbps": 600}

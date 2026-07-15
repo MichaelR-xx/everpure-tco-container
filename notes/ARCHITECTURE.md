@@ -92,7 +92,7 @@ flowchart LR
 ### Authentication & storage selection
 | Function / endpoint | Inputs | Outputs | Files created |
 |---|---|---|---|
-| `POST /api/auth/login` → `_storage_write_test`, `_ensure_backend_configs` | username, password, storage choice (MikeS3 / Other S3 bucket+keys / Local drive) | session (logged-in + storage backend); write-test pass/fail | health-check object (written then deleted); seeds `pscd_config.json` + `ecan_config.json` into a new backend |
+| `POST /api/auth/login` → `_storage_write_test`, `_ensure_backend_configs` | username, password, storage choice (MikeS3 / Other S3 bucket+keys / Local drive) | session (logged-in + storage backend); write-test pass/fail | health-check object (written then deleted); seeds `ec_config.json` + `ecan_config.json` into a new backend |
 | `_build_client` / `_s3_client` / `LocalS3Client` | session storage config | a storage client (S3 or local) | — (I/O layer used by everything below) |
 
 ### Customers
@@ -108,7 +108,7 @@ flowchart LR
 | `POST /api/mapping/parse` → **`main2(event, df_all)`** | raw CSV(s) + column-index mapping | parsed inventory (volumes/VMs grouped), cost summary | `…/results/parsed_data.csv`, `…/results/source_data_config.json`, plus cached pricing `…/results/azure_managed_disk_costs.csv`, `…/results/ec_infra_resource_costs.csv` |
 | `GET/POST/DELETE /api/mapping/templates` | mapping template | saved templates | `TCO-GUI/_config/mapping_templates.json` |
 | `GET/PUT /api/mapping/fields` | learned header aliases | field catalog | `TCO-GUI/_config/data_fields_aliases.json` |
-| `gen_price_list_azure`, `get_pscd_size_n_cost_data` | region/SKU list + **live Azure Retail Prices API** | Azure managed-disk & EC infra price tables | `azure_managed_disk_costs.csv`, `ec_infra_resource_costs.csv` (cached in the run's `results/`) |
+| `gen_price_list_azure`, `get_ec_size_n_cost_data` | region/SKU list + **live Azure Retail Prices API** | Azure managed-disk & EC infra price tables | `azure_managed_disk_costs.csv`, `ec_infra_resource_costs.csv` (cached in the run's `results/`) |
 
 ### Results — filtering & running analysis
 | Function / endpoint | Inputs | Outputs | Files created |
@@ -116,7 +116,7 @@ flowchart LR
 | `GET /api/results/list`, `POST /api/results/detail` → `_compute_detail_metrics` | parsed_data.csv + its config | KPIs + region / disk-type / group breakdowns | — |
 | `POST /api/results/filter-preview` / `filter-detail` | parsed_data.csv, search terms, include/exclude | matched/kept counts, sample rows, filtered summary | — |
 | `POST /api/results/save-filter` | parsed_data.csv, terms, mode, label | a new self-contained filtered dataset | `…/results/filters/<slug>_<stamp>/parsed_data.csv` + copied `source_data_config.json`, cost CSVs, and `filter.json` |
-| `POST /api/results/run-analysis` → **`tco_by_group_y1`** (Dedicated) **or `tco_by_group_azure_native`** (Azure Native) → `project_growth_over_time` | parsed_data.csv + parameters (growth, DRR, snapshot, efficiency, SKU, years, cycle, deployment model); reads `pscd_config.json` / `ecan_config.json` + cost CSVs | per-group TCO, multi-year cost sheet, growth projection | `…/results/tco/<id>/group_summary.csv`, `cost_sheet.csv`, `df_groups.csv`, `meta.json`, `projection.json` |
+| `POST /api/results/run-analysis` → **`tco_by_group_y1`** (Dedicated) **or `tco_by_group_azure_native`** (Azure Native) → `project_growth_over_time` | parsed_data.csv + parameters (growth, DRR, snapshot, efficiency, SKU, years, cycle, deployment model); reads `ec_config.json` / `ecan_config.json` + cost CSVs | per-group TCO, multi-year cost sheet, growth projection | `…/results/tco/<id>/group_summary.csv`, `cost_sheet.csv`, `df_groups.csv`, `meta.json`, `projection.json` |
 
 ### TCO Review
 | Function / endpoint | Inputs | Outputs | Files created |
@@ -139,7 +139,7 @@ Object keys (S3) / paths (local, under `<DRIVE>:\EverpureTCO\`) share this layou
 TCO-GUI/
 ├─ _config/
 │   ├─ customer_list.json          # customers (created/updated by Customers API)
-│   ├─ pscd_config.json            # PSCD sizing config  [INPUT — required by Dedicated]
+│   ├─ ec_config.json            # EC sizing config  [INPUT — required by Dedicated]
 │   ├─ ecan_config.json            # Azure Native pricing config  [INPUT — required by Azure Native]
 │   ├─ mapping_templates.json      # saved column-mapping templates
 │   └─ data_fields_aliases.json    # learned header→field aliases
@@ -155,7 +155,7 @@ TCO-GUI/
             ├─ parsed_data.csv               # parsed inventory  (main2)
             ├─ source_data_config.json       # column mapping used  (main2)
             ├─ azure_managed_disk_costs.csv   # cached Azure disk pricing
-            ├─ ec_infra_resource_costs.csv    # cached EC/PSCD infra pricing
+            ├─ ec_infra_resource_costs.csv    # cached EC/EC infra pricing
             ├─ filters/
             │   └─ <slug>_<stamp>/            # a saved use-case-filtered dataset
             │       ├─ parsed_data.csv
@@ -183,7 +183,7 @@ created by the solution as users move through the workflow.
 
 | Dependency | Used by | Purpose |
 |---|---|---|
-| **Azure Retail Prices API** (public HTTPS) | `gen_price_list_azure`, `get_pscd_size_n_cost_data` | live Azure managed-disk pricing for each analysis |
+| **Azure Retail Prices API** (public HTTPS) | `gen_price_list_azure`, `get_ec_size_n_cost_data` | live Azure managed-disk pricing for each analysis |
 | **Amazon S3** (boto3) | storage layer | MikeS3 / Other S3 backends |
 | **Local filesystem** | `LocalS3Client` | Local Storage backend |
 | **WeasyPrint** *(optional)* / **headless Chrome or Edge** | `POST /api/tco/save-graph` | render TCO graphs to PDF |

@@ -31,7 +31,7 @@ docker run --rm --entrypoint sh "$IMAGE" -c 'command -v chromium && command -v w
 
 say "verify seeded engine configs exist in the image"
 docker run --rm --entrypoint sh "$IMAGE" -c 'ls -1 /data/EverpureTCO/TCO-GUI/_config/' \
-  | grep -q pscd_config.json && ok "pscd/ecan configs seeded" || bad "engine configs not seeded"
+  | grep -q ec_config.json && ok "ec/ecan configs seeded" || bad "engine configs not seeded"
 
 say "run the container (Local Storage on a fresh volume)"
 docker run -d --name "$NAME" -p "${PORT}:5000" \

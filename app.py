@@ -355,7 +355,7 @@ def _json_error_handler(e):
 
 def _ensure_backend_configs(storage):
     """A newly selected Other-S3 / Local backend won't have the global engine
-    config files (pscd_config.json, ecan_config.json). Copy any that are missing
+    config files (ec_config.json, ecan_config.json). Copy any that are missing
     from MikeS3 so analysis works there. Idempotent and best-effort — only
     contacts MikeS3 when something is actually missing. Returns the list of keys
     that ended up seeded."""
@@ -365,7 +365,7 @@ def _ensure_backend_configs(storage):
     try:
         dst, dbucket = _build_client(storage), _bucket_for(storage)
         missing = []
-        for key in (PSCD_CONFIG_KEY, ECAN_CONFIG_KEY):
+        for key in (EC_CONFIG_KEY, ECAN_CONFIG_KEY):
             try:
                 dst.head_object(Bucket=dbucket, Key=key)
             except Exception:
@@ -1131,7 +1131,7 @@ def evaluate_migration(df, params):
         "group":                  g["group"],
         "region":                 g["region"],
         "original_capacity":      round(g["orig_cap"], 2),
-        "pscd_licensed_capacity": round(g["lic_cap"], 2),
+        "ec_licensed_capacity": round(g["lic_cap"], 2),
         "azure_native_monthly":   round(g["adj_azure"], 2),
         "everpure_license_monthly": round(g["adj_license"], 2),
         "everpure_infra_monthly": round(g["infra"], 2),
@@ -1393,7 +1393,7 @@ def tco_consolidate():
 
     For each region, every group whose (commercially-adjusted) savings is negative is
     re-homed into a positive-savings group in the SAME region using an LPT balance on
-    PSCD licensed capacity (each positive group's bin starts loaded with its own
+    EC licensed capacity (each positive group's bin starts loaded with its own
     licensed capacity; the largest negative group goes to the least-loaded bin). The
     negative group's disk rows are rewritten in the parsed data to carry the target
     group's group_id + account/zone/vnet, and the result is saved as a NEW
@@ -1904,7 +1904,7 @@ def tco_project():
         except Exception:
             params = {}
         params["source_data_config"] = source_data_config
-        params["pscd_data"] = _load_pscd_list(params.get("skus", ["V10MP2R2", "V20MP2R2"]))
+        params["ec_data"] = _load_ec_list(params.get("skus", ["V10MP2R2", "V20MP2R2"]))
 
         result = project_growth_over_time(params, df_parsed, df_azure_disk, df_ec_infra,
                                           results_dir, yearly_growth, frequency)
@@ -2540,7 +2540,7 @@ def results_run_analysis():
         "initial_cap_rate":        "initial_cap_rate",
         "ignore_iops_provisioned": "ignore_iops_provisioned",
         "efficiency":              "efficiency",
-        "default_sku_model":       "pscd_sku_bias",
+        "default_sku_model":       "ec_sku_bias",
     }
     method = str(params.get("method", "dedicated")).strip().lower()
     # print(f"analysis method: {method}")
@@ -2553,8 +2553,8 @@ def results_run_analysis():
     try:
         if method == "azure_native":
             # ── Azure Native path ──────────────────────────────────────────────
-            # Read the ECAN config from S3 (same _config prefix as pscd_config.json)
-            # and run the simplified capacity + throughput cost model. No PSCD SKU
+            # Read the ECAN config from S3 (same _config prefix as ec_config.json)
+            # and run the simplified capacity + throughput cost model. No EC SKU
             # sizing or infrastructure pricing is used.
             ecan_config = _load_ecan_config()
             params["ecan_config"] = ecan_config
@@ -2566,13 +2566,13 @@ def results_run_analysis():
         else:
             param_models = params.get("skus", ["V10MP2R2", "V20MP2R2"])
             # print(param_models)
-            # 4. Load PSCD Config Data
-            pscd_data = _load_pscd_list(param_models)
-            params["pscd_data"] = pscd_data
-            # print("pscd_data", pscd_data, type(pscd_data))
-            if not isinstance(pscd_data, dict) or not pscd_data.get("models"):
-                return jsonify({"error": f"pscd_config.json was not found (or has no models) in this storage "
-                                         f"location ({PSCD_CONFIG_KEY}). The PSCD sizing config is missing for "
+            # 4. Load EC Config Data
+            ec_data = _load_ec_list(param_models)
+            params["ec_data"] = ec_data
+            # print("ec_data", ec_data, type(ec_data))
+            if not isinstance(ec_data, dict) or not ec_data.get("models"):
+                return jsonify({"error": f"ec_config.json was not found (or has no models) in this storage "
+                                         f"location ({EC_CONFIG_KEY}). The EC sizing config is missing for "
                                          f"this backend."}), 400
             rst = tco_by_group_y1(params, df_parsed, df_azure_disk, df_ec_infra, s3_path)
     except Exception as exc:
@@ -2835,17 +2835,17 @@ def _load_customer_list():
     except Exception:
         return []
 
-def _load_pscd_list(models):
+def _load_ec_list(models):
     global s3_region
     global s3_bucket
     included_models = {"models": {}}
     # print("models",models)
-    """Read PSCD Config JSON from S3. Returns list of customer name strings."""
+    """Read EC Config JSON from S3. Returns list of customer name strings."""
     try:
         s3   = _s3_client()
-        obj  = s3.get_object(Bucket=s3_bucket, Key=PSCD_CONFIG_KEY)
+        obj  = s3.get_object(Bucket=s3_bucket, Key=EC_CONFIG_KEY)
         data = json.loads(obj["Body"].read().decode("utf-8"))
-        # print("pscd_config",data,type(data))
+        # print("ec_config",data,type(data))
         for mod in models:
             # print("mod", mod)
             if mod in data.get("models", {}).keys():
@@ -2862,7 +2862,7 @@ def _load_pscd_list(models):
 
 def _load_ecan_config():
     """Read the Azure Native (ECAN) config JSON from S3, stored alongside the
-    PSCD config under the _config prefix. Returns the dict keyed by SKU
+    EC config under the _config prefix. Returns the dict keyed by SKU
     (e.g. {"V20AZN": {...}}), or {} on any error."""
     global s3_region
     global s3_bucket
@@ -3670,7 +3670,7 @@ def mapping_templates_delete(tpl_id):
         return jsonify({"error": str(exc)}), 500
     return jsonify({"ok": True, "templates": templates})
 
-def get_pscd_size_n_cost_data(regions, customer, directory, pscd):
+def get_ec_size_n_cost_data(regions, customer, directory, ec):
 
     file_name_ec_cost = "ec_infra_resource_costs.csv"
     output_bucket_prefix = session["results_prefix"]
@@ -3684,7 +3684,7 @@ def get_pscd_size_n_cost_data(regions, customer, directory, pscd):
         hours_per_month = 730
         all_data = []
 
-        # Generate Dataframe for PSCD component Azure retail costs. Each region is
+        # Generate Dataframe for EC component Azure retail costs. Each region is
         # independent (only reads shared, read-only config), so process regions
         # concurrently on a thread pool — the per-region body below builds its own
         # local `data` list which is merged into all_data.
@@ -3695,13 +3695,13 @@ def get_pscd_size_n_cost_data(regions, customer, directory, pscd):
             # Controllers
             cost_type = "Controller"
             service = "Virtual Machines"
-            pscd_models = list(pscd)
-            # print(pscd_models)
-            for model in pscd_models:
+            ec_models = list(ec)
+            # print(ec_models)
+            for model in ec_models:
                 service_name = service
                 # product = "Azure Premium SSD v2"
-                # print(pscd[model])
-                vm = pscd[model].get("VM")
+                # print(ec[model])
+                vm = ec[model].get("VM")
                 vm_enc = urllib.parse.quote(vm)
                 service_enc = urllib.parse.quote(service_name)
                 type_list = ["Consumption", "Reservation"]
@@ -3763,7 +3763,7 @@ def get_pscd_size_n_cost_data(regions, customer, directory, pscd):
                                 "monthRate": month_rate,
                                 "retailPrice": float(retail_price),
                                 'tierMinimumUnits': None,
-                                "pscSku": pscd[model].get("pscSku"),
+                                "pscSku": ec[model].get("pscSku"),
                                 "costType": cost_type
                             }
                             data.append(v)
@@ -3857,15 +3857,15 @@ def get_pscd_size_n_cost_data(regions, customer, directory, pscd):
                 all_data.extend(_rows)
         # for d in data:
         #    print(d)
-        df_pscd_pricing = pd.DataFrame(all_data)
+        df_ec_pricing = pd.DataFrame(all_data)
         file_name_ec_cost = "ec_infra_resource_costs.csv"
         output_bucket_prefix = session["results_prefix"]
         object_prefix = f"{output_bucket_prefix}"
         # Use the put_object API to upload the CSV data
-        status_up = upload_df_to_s3(df_pscd_pricing, file_name_ec_cost, object_prefix)
+        status_up = upload_df_to_s3(df_ec_pricing, file_name_ec_cost, object_prefix)
         # print(f"ec_infra_resource_file upload status {status_up}")
 
-        return df_pscd_pricing
+        return df_ec_pricing
 
 
 def calc_true_cost_azure(row, azure_pricing):
@@ -4591,7 +4591,7 @@ def convert_disk_usage_to_root_flag(row):
 
 def main2(event,df_all):
     #use_price_file_flag = event.get("use_price_file_flag",0)
-    #pscd_price_file = event.get("pscd_price_file")
+    #ec_price_file = event.get("ec_price_file")
     #azure_price_file = event.get("azure_price_file")
     region_column_value = _cfg_int(event, "region")
     zone_column_value = _cfg_int(event, "zone")
@@ -4635,7 +4635,7 @@ def main2(event,df_all):
     # print(list_of_regions)
     per_vm_v10_bw_limit = event.get("per_vm_v20_bw_limit",1024)
     per_vm_v20_bw_limit = event.get("per_vm_v20_bw_limit", 1800)
-    pscd_config = event.get("pscd_config",{
+    ec_config = event.get("ec_config",{
         "V10MP2R2":
             {
                 "pscSku": "V10MP2R2",
@@ -4754,7 +4754,7 @@ def main2(event,df_all):
     })
     initial_iops_full_rate = event.get("initial_iops_full_rate", 0.9)
     initial_cap_rate = event.get("initial_cap_rate", 0.80)
-    pscd_license_cost_per_gib = float(event.get("pscd_license_cost_per_gib", "0.06"))
+    ec_license_cost_per_gib = float(event.get("ec_license_cost_per_gib", "0.06"))
     directory = event.get("directory")
 
     customer = event.get("name")
@@ -4767,7 +4767,7 @@ def main2(event,df_all):
     mid_tier_capacity_limit_V10_GiB = event.get("mid_tier_capacity_limit_V10_GiB", 51050)
     top_tier_ratio_limit_V20 = event.get("top_tier_ratio_limit_V20", 0.75)
     top_tier_capacity_limit_V20_GiB = event.get("top_tier_capacity_limit_V20_GiB", 102400)
-    pscd_sku_bias = event.get("pscd_sku_bias", "none")
+    ec_sku_bias = event.get("ec_sku_bias", "none")
     if use_vm_inclusion_list:
         vm_inclusion_list = event.get("vm_inclusion_list", [])
     global efficiency
@@ -5179,8 +5179,8 @@ def main2(event,df_all):
     if not count_compute_flag:
         df_csv[compute] = "not_given"
         df_csv["vm_perf_tier"] = 0
-        if not "min_pscd_model" in df_csv.columns:
-            df_csv["min_pscd_model"] = "V10MP2R2"
+        if not "min_ec_model" in df_csv.columns:
+            df_csv["min_ec_model"] = "V10MP2R2"
     # print(df_csv.shape)
     # df_csv[disk_type] = df_csv[disk_type].fillna("bad")
     # print(df_csv.shape)
@@ -5193,14 +5193,14 @@ def main2(event,df_all):
     # print(df_csv.info())
     region_list_pricing = df_csv[region].unique()
     azure_pricing = gen_price_list_azure(region_list_pricing, customer, directory)
-    df_pscd_pricing = get_pscd_size_n_cost_data(region_list_pricing, customer, directory, pscd_config)
-    pscd_mods = list(pscd_config)
-    for mod in pscd_mods:
-        group_pscd_capacity_matrix_str = pscd_config[mod]["raw_cap_matrix"].keys()
-        group_pscd_capacity_matrix_list = [int(x) for x in group_pscd_capacity_matrix_str]
-        pscd_config[mod]["usable_limit_capacity"] = max(group_pscd_capacity_matrix_list)
-    min_pscd_model = pscd_config[pscd_mods[0]]["pscSku"]
-    # print(f"min sku model {min_pscd_model}")
+    df_ec_pricing = get_ec_size_n_cost_data(region_list_pricing, customer, directory, ec_config)
+    ec_mods = list(ec_config)
+    for mod in ec_mods:
+        group_ec_capacity_matrix_str = ec_config[mod]["raw_cap_matrix"].keys()
+        group_ec_capacity_matrix_list = [int(x) for x in group_ec_capacity_matrix_str]
+        ec_config[mod]["usable_limit_capacity"] = max(group_ec_capacity_matrix_list)
+    min_ec_model = ec_config[ec_mods[0]]["pscSku"]
+    # print(f"min sku model {min_ec_model}")
     if cloud == "azure":
         df_csv["total_cost"] = 0
         df_csv["cap_cost"] = 0
@@ -5209,8 +5209,8 @@ def main2(event,df_all):
         df_csv["snap_cost"] = 0
         df_csv["paid_capacity"] = 0
         df_csv["vm_perf_tier"] = 0
-        if not "min_pscd_model" in df_csv.columns:
-            df_csv["min_pscd_model"] = min_pscd_model
+        if not "min_ec_model" in df_csv.columns:
+            df_csv["min_ec_model"] = min_ec_model
         df_csv["mode"] = "LRS"
         df_csv["group_id"] = 0
         df_csv[["total_cost",
@@ -5380,7 +5380,7 @@ def main2(event,df_all):
                                                      compute_column_name=compute, iops_column_name=iops,
                                                      bw_column_name=mbps, disk_size_column_name=disk_size,
                                                      disk_type_column_name=disk_type, vm_data=vm_data,
-                                                     min_sku_value=min_pscd_model)
+                                                     min_sku_value=min_ec_model)
                                         vm_perf_tier = 0
                                         if (vm_data[cp].get("non_perf_tot_iops") > 999 or vm_data[cp].get(
                                                 "non_perf_tot_bw") > 124):
@@ -5403,34 +5403,34 @@ def main2(event,df_all):
                                                     vm_perf_tier = 5
                                         # print(f"vm {cp} tier {vm_perf_tier}")
 
-                                        min_pscd_model = pscd_config[pscd_mods[0]]["pscSku"]
-                                        # print(f"min_pscd_model {min_pscd_model} alice")
-                                        for i in range(1, len(pscd_mods)):
-                                            # print(f" iops {pscd_config[pscd_mods[i]]["usable_limit_iops"]* initial_iops_full_rate} and {vm_data[cp].get("perf_tot_iops")} and {vm_data[cp].get("non_perf_tot_iops")} bw {vm_data[cp]["perf_tot_bw"]} {per_vm_v20_bw_limit} and {per_vm_v10_bw_limit}")
-                                            if (vm_data[cp].get("perf_tot_iops") + vm_data[cp].get("non_perf_tot_iops")) > (pscd_config[pscd_mods[i]]["usable_limit_iops"] * initial_iops_full_rate):
-                                                min_pscd_model = pscd_config[pscd_mods[i]]["pscSku"]
+                                        min_ec_model = ec_config[ec_mods[0]]["pscSku"]
+                                        # print(f"min_ec_model {min_ec_model} alice")
+                                        for i in range(1, len(ec_mods)):
+                                            # print(f" iops {ec_config[ec_mods[i]]["usable_limit_iops"]* initial_iops_full_rate} and {vm_data[cp].get("perf_tot_iops")} and {vm_data[cp].get("non_perf_tot_iops")} bw {vm_data[cp]["perf_tot_bw"]} {per_vm_v20_bw_limit} and {per_vm_v10_bw_limit}")
+                                            if (vm_data[cp].get("perf_tot_iops") + vm_data[cp].get("non_perf_tot_iops")) > (ec_config[ec_mods[i]]["usable_limit_iops"] * initial_iops_full_rate):
+                                                min_ec_model = ec_config[ec_mods[i]]["pscSku"]
                                             # 04/06/26 MR added flag to skip BW affect
                                             if vm_data[cp]["perf_tot_bw"] > per_vm_v20_bw_limit and not ignore_bw_provisioned_flag:
                                                 # print(f"bump to v50 was due to bandwidth {vm_data[cp]['perf_tot_bw']}")
-                                                min_pscd_model = "V50MP2R2"
+                                                min_ec_model = "V50MP2R2"
                                             # 04/06/26 MR added flag to skip BW affect
                                             elif vm_data[cp]["perf_tot_bw"] > per_vm_v10_bw_limit and not ignore_bw_provisioned_flag:
-                                                min_pscd_model = "V20MP2R2"
-                                        # print(f"min_pscd_model {min_pscd_model} bob")
-                                        if supported_region_list_flag and int(pscd_config[min_pscd_model]["index"]) > int(supported_region_list[reg]) and min_pscd_model == "V50MP2R2":
-                                            min_pscd_model = "V20MP2R2"
+                                                min_ec_model = "V20MP2R2"
+                                        # print(f"min_ec_model {min_ec_model} bob")
+                                        if supported_region_list_flag and int(ec_config[min_ec_model]["index"]) > int(supported_region_list[reg]) and min_ec_model == "V50MP2R2":
+                                            min_ec_model = "V20MP2R2"
 
                                         vm_data[cp]["vm_perf_tier"] = vm_perf_tier
-                                        vm_data[cp]["min_pscd_model"] = min_pscd_model
+                                        vm_data[cp]["min_ec_model"] = min_ec_model
                                         # print(vm_perf_tier,vm_data)
-                                        condition = (df_csv[compute] == cp) & (min_pscd_model > df_csv["min_pscd_model"])
+                                        condition = (df_csv[compute] == cp) & (min_ec_model > df_csv["min_ec_model"])
                                         df_csv["vm_perf_tier"] = df_csv["vm_perf_tier"].mask(condition, vm_perf_tier)
-                                        df_csv["min_pscd_model"] = df_csv["min_pscd_model"].mask(condition, min_pscd_model)
+                                        df_csv["min_ec_model"] = df_csv["min_ec_model"].mask(condition, min_ec_model)
 
                                 # max_vol_perf_tiers = df_csv.loc[(df_csv['group_id'] == group_id), "vm_perf_tier"].max()
                                 # print(f"max tier {max_vol_perf_tiers}")
 
-                                # min_sku_perf = df_csv.loc[(df_csv['group_id'] == group_id), "min_pscd_model"].unique()
+                                # min_sku_perf = df_csv.loc[(df_csv['group_id'] == group_id), "min_ec_model"].unique()
                                 # print(f"main skus {min_sku_perf}")
 
                             else:
@@ -5472,7 +5472,7 @@ def main2(event,df_all):
     initial_size_rate = initial_cap_rate
     growth_rate = growth
     num_of_years = 5
-    # df_pscd_pricing and df_pscd_model
+    # df_ec_pricing and df_ec_model
 
     # Parse each group
     group_list = df_csv['group_id'].unique()
@@ -5493,7 +5493,7 @@ def main2(event,df_all):
             reg = reg_list[0]
             if supported_region_list_flag:
                 if (not reg in supported_region_list) or supported_region_list[reg] == 0:
-                    print(f"data found in region that does not supprot pscd, skipping region {reg} group {g}")
+                    print(f"data found in region that does not supprot ec, skipping region {reg} group {g}")
                     continue
         else:
             raise f"group {g} could not get region info {reg_list}"
@@ -5569,7 +5569,7 @@ def calc_compute_usage(row, vm_name, compute_column_name, iops_column_name, bw_c
                     "perf_disk_types": [],
                     "perf_tot_cap": 0,
                     "vm_perf_tier": perf_type,
-                    "min_pscd_model": min_sku_value}
+                    "min_ec_model": min_sku_value}
             else:
                 perf_type = 1
                 vm_data[vm_name] = {
@@ -5584,7 +5584,7 @@ def calc_compute_usage(row, vm_name, compute_column_name, iops_column_name, bw_c
                     "perf_disk_types": [new_type],
                     "perf_tot_cap": new_size,
                     "vm_perf_tier": perf_type,
-                    "min_pscd_model": min_sku_value}
+                    "min_ec_model": min_sku_value}
         # print(f"vm data {vm_data[vm_name]}")
     return
 
@@ -5633,10 +5633,10 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
     mid_tier_capacity_limit_V10_GiB = params.get("mid_tier_capacity_limit_V10_GiB", 51050)
     top_tier_ratio_limit_V20 = params.get("top_tier_ratio_limit_V20", 0.75)
     top_tier_capacity_limit_V20_GiB = params.get("top_tier_capacity_limit_V20_GiB", 102400)
-    pscd_sku_bias = params.get("default_sku_model", "V10MP2R2")
+    ec_sku_bias = params.get("default_sku_model", "V10MP2R2")
     initial_iops_full_rate = params.get("initial_iops_full_rate", 0.9)
     initial_cap_rate = params.get("initial_cap_rate", 0.80)
-    pscd_license_cost_per_gib = float(params.get("pscd_license_cost_per_gib", "0.06"))
+    ec_license_cost_per_gib = float(params.get("ec_license_cost_per_gib", "0.06"))
     price_mode_list = ["1 Year", "3 Years", "onDemand"]
     price_mode = params.get("price_mode", price_mode_list[1])
     mixed_skus_in_group_flag = params.get("mixed_skus_in_group_flag", False)
@@ -5647,7 +5647,7 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
     growth_rate = params.get("growth", 0.2)
     num_of_years = params.get("num_of_years", 5)
     data_reduction_ratio = params.get("drr", 4)
-    # df_pscd_pricing and df_pscd_model
+    # df_ec_pricing and df_ec_model
 
     # Parse each group
     monthly_snapshot_rate = params.get('monthly_snapshot_rate', 0.1)
@@ -5670,8 +5670,8 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
     array_costs = []
     # print(f"error 4 group_list {group_list}")
     group_list = df_parsed['group_id'].unique()
-    pscd_config = params.get("pscd_data", {}).get("models", {})
-    sku_list = pscd_config.keys()
+    ec_config = params.get("ec_data", {}).get("models", {})
+    sku_list = ec_config.keys()
 
     supported_region_list = params.get("region_list", [])
 
@@ -5715,10 +5715,10 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
         if len(reg_list) == 1:
             reg = reg_list[0]
             for sku in sku_list:
-                if reg in pscd_config.get(sku).get("azure_supported_regions",[]):
+                if reg in ec_config.get(sku).get("azure_supported_regions",[]):
                     sku_in_region.append(sku)
         if len(sku_in_region) == 0 or reg == None:
-            print(f"data found in region that does not support any pscd skus, skipping region {reg} group {g}")
+            print(f"data found in region that does not support any ec skus, skipping region {reg} group {g}")
             continue
 
         group_tot_capacity_all_tiers = df_parsed.loc[
@@ -5764,29 +5764,29 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
             # SKUs may not be mixed within a group: promote every member of this
             # group to the highest SKU found in the group (largest "index").
             group_skus = df_parsed.loc[
-                (df_parsed['group_id'] == g), "min_pscd_model"].dropna().unique().tolist()
+                (df_parsed['group_id'] == g), "min_ec_model"].dropna().unique().tolist()
             group_skus.append(group_min_sku)
             highest_sku = group_min_sku
-            highest_index = pscd_config.get(group_min_sku, {}).get("index", -1)
+            highest_index = ec_config.get(group_min_sku, {}).get("index", -1)
             for sku in group_skus:
-                sku_index = pscd_config.get(sku, {}).get("index")
+                sku_index = ec_config.get(sku, {}).get("index")
                 if sku_index is not None and sku_index > highest_index:
                     highest_index = sku_index
                     highest_sku = sku
             group_min_sku = highest_sku
-            df_parsed.loc[(df_parsed['group_id'] == g), "min_pscd_model"] = group_min_sku
+            df_parsed.loc[(df_parsed['group_id'] == g), "min_ec_model"] = group_min_sku
 
         # print(f"group {g} group min sku {group_min_sku} ")
 
         models = []
         # check if there is a minimum sku set for this group
-        df_parsed["min_pscd_model"] = df_parsed["min_pscd_model"].fillna(group_min_sku)
+        df_parsed["min_ec_model"] = df_parsed["min_ec_model"].fillna(group_min_sku)
         #min_sku_list_unsorted = []
         #for sku in sku_in_region:
-        #    min_sku_list_unsorted.append(int(pscd_config.get(sku).get("index")))
+        #    min_sku_list_unsorted.append(int(ec_config.get(sku).get("index")))
 
         # In the parsed data for this group return back a list of min sku values indicated by performance
-        data_min_sku_list = sorted(df_parsed.loc[(df_parsed['group_id'] == g), "min_pscd_model"].unique())
+        data_min_sku_list = sorted(df_parsed.loc[(df_parsed['group_id'] == g), "min_ec_model"].unique())
         # Compare the min sku values in the data to what skus are supported in the region
         min_sku_list = list(set(data_min_sku_list) & set(sku_in_region))
         min_sku_list.sort(key=lambda x: int(re.search(r'\d+', x).group()))
@@ -5797,20 +5797,20 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
         min_value_from_min_sku_list = 500
         for ms in min_sku_list:
             # print(ms)
-            if pscd_config.get(ms).get("index") < min_value_from_min_sku_list:
-                min_value_from_min_sku_list = pscd_config.get(ms).get("index")
+            if ec_config.get(ms).get("index") < min_value_from_min_sku_list:
+                min_value_from_min_sku_list = ec_config.get(ms).get("index")
         # print(f" final min sku value {min_value_from_min_sku_list}")
 
         group_fixed_cost = {}
 
         # print(f"error 3 {g} {reg_list}")
         # Get the list of SKUs that were available in the pricing data - some skus might not be supported because of region
-        pscd_model_list = sku_in_region
-        #pscd_model_list_pre = df_ec_infra["pscSku"].dropna().unique()
-        #pscd_model_list = list(filter(None, pscd_model_list_pre))
-        # print(f"filtered pscd model list {pscd_model_list}")
+        ec_model_list = sku_in_region
+        #ec_model_list_pre = df_ec_infra["pscSku"].dropna().unique()
+        #ec_model_list = list(filter(None, ec_model_list_pre))
+        # print(f"filtered ec model list {ec_model_list}")
         #try:
-        #    pscd_model_list.remove("nan")
+        #    ec_model_list.remove("nan")
             # print("found and removed nan")
         #except:
         #    aaaaa = True
@@ -5824,14 +5824,14 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
         else:
             raise f"lookup of controller cost error {controller_os_disk_cost_rate_list}"
         # Calculate the SKU dependdent csots for all SKUs
-        for p in pscd_model_list:
+        for p in ec_model_list:
 
             # Populate the sku list that will be used later for price comparison - this will be all skus minus the one that dont meet the minimum requirements
-            #if (supported_region_list_flag and pscd_config[p]["index"] <= supported_region_list[reg]) or not supported_region_list_flag:
-            if pscd_config.get(p).get("index") >= min_value_from_min_sku_list:
+            #if (supported_region_list_flag and ec_config[p]["index"] <= supported_region_list[reg]) or not supported_region_list_flag:
+            if ec_config.get(p).get("index") >= min_value_from_min_sku_list:
                 models.append(p)
             else:
-                print(f"warning: not all pscd models suported in this region {reg} group {g} sku {p}")
+                print(f"warning: not all ec models suported in this region {reg} group {g} sku {p}")
                 continue
 
             # Calculate the  monthly rate for the controllers
@@ -5849,7 +5849,7 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                     controller_vm_cost_monthly_rate = controller_rate_monthly_price_list[0]
                 else:
                     print("none found")
-                    pscd_model_list.remove(p)
+                    ec_model_list.remove(p)
                     continue
                 # raise f"lookup of controller cost error {controller_rate_monthly_price_list}"
 
@@ -5858,8 +5858,8 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                 (df_ec_infra["meterName"] == "Premium LRS Provisioned Capacity") &
                 (df_ec_infra["armRegionName"] == reg), "monthRate"].unique()
             if len(controller_nvram_cap_monthly_price_list) == 1:
-                # print(controller_nvram_cap_monthly_price_list[0],  pscd_config.get(p).get("nvram_size"), pscd_config.get(p).get("nvram_num"))
-                controller_nvram_cap_cost_monthly_rate = controller_nvram_cap_monthly_price_list[0] * pscd_config.get(p).get("nvram_size") * pscd_config.get(p).get("nvram_num")
+                # print(controller_nvram_cap_monthly_price_list[0],  ec_config.get(p).get("nvram_size"), ec_config.get(p).get("nvram_num"))
+                controller_nvram_cap_cost_monthly_rate = controller_nvram_cap_monthly_price_list[0] * ec_config.get(p).get("nvram_size") * ec_config.get(p).get("nvram_num")
             else:
                 print(f"found error in nvrmam cost lookup {p} {reg} {price_mode}")
                 if len(controller_nvram_cap_monthly_price_list) > 1:
@@ -5867,7 +5867,7 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                     controller_vm_cost_monthly_rate = controller_rate_monthly_price_list[0]
                 else:
                     print("none found")
-                    pscd_model_list.remove(p)
+                    ec_model_list.remove(p)
                     continue
                 # raise f"lookup of controller nvram cap cost error {controller_nvram_cap_monthly_price_list}"
 
@@ -5877,7 +5877,7 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                 (df_ec_infra["armRegionName"] == reg), "monthRate"].unique()
             if len(controller_nvram_iops_monthly_price_list) == 1:
                 controller_nvram_iops_cost_monthly_rate = controller_nvram_iops_monthly_price_list[0] * (
-                        pscd_config.get(p).get("NvramIOPS") - 3000) * pscd_config.get(p).get("nvram_num")
+                        ec_config.get(p).get("NvramIOPS") - 3000) * ec_config.get(p).get("nvram_num")
             else:
                 print(f"found error in nvrmam iops cost lookup {p} {reg} {price_mode}")
                 if len(controller_nvram_iops_monthly_price_list) > 1:
@@ -5885,7 +5885,7 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                     controller_vm_cost_monthly_rate = controller_rate_monthly_price_list[0]
                 else:
                     print("none found")
-                    pscd_model_list.remove(p)
+                    ec_model_list.remove(p)
                     continue
                 # raise f"lookup of controller nvram iops cost error {controller_nvram_iops_monthly_price_list}"
 
@@ -5895,7 +5895,7 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                 (df_ec_infra["armRegionName"] == reg), "monthRate"].unique()
 
             if len(controller_nvram_bw_monthly_price_list) == 1:
-                controller_nvram_bw_cost_monthly_rate = controller_nvram_bw_monthly_price_list[0] * (pscd_config.get(p).get("NvramBW") - 125) * pscd_config.get(p).get("nvram_num")
+                controller_nvram_bw_cost_monthly_rate = controller_nvram_bw_monthly_price_list[0] * (ec_config.get(p).get("NvramBW") - 125) * ec_config.get(p).get("nvram_num")
             else:
                 print(f"found error in nvrmam bw cost lookup {p} {reg} {price_mode}")
                 if len(controller_nvram_bw_monthly_price_list) > 1:
@@ -5903,7 +5903,7 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                     controller_vm_cost_monthly_rate = controller_rate_monthly_price_list[0]
                 else:
                     print("none found")
-                    pscd_model_list.remove(p)
+                    ec_model_list.remove(p)
                     continue
                 # raise f"lookup of controller nvram iops cost error {controller_nvram_bw_monthly_price_list}"
             # if g == 1 or g == "1":
@@ -5951,25 +5951,25 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
         for ms in min_sku_list:
             group_tot_iops[ms] = df_parsed.loc[
                 (df_parsed['group_id'] == g) &
-                (df_parsed["min_pscd_model"] == ms), iops].sum()
+                (df_parsed["min_ec_model"] == ms), iops].sum()
 
             group_prov_cap[ms] = df_parsed.loc[
                 (df_parsed['group_id'] == g) &
-                (df_parsed["min_pscd_model"] == ms), disk_size].sum()
+                (df_parsed["min_ec_model"] == ms), disk_size].sum()
 
             tmp_list2 = df_parsed.loc[
                 (df_parsed['group_id'] == g) &
-                (df_parsed["min_pscd_model"] == ms), compute]
+                (df_parsed["min_ec_model"] == ms), compute]
             # print(f"error 2 {tmp_list2}")
 
             tmp_list = df_parsed.loc[
                 (df_parsed['group_id'] == g) &
-                (df_parsed["min_pscd_model"] == ms), compute].unique()
+                (df_parsed["min_ec_model"] == ms), compute].unique()
 
             group_tot_compute[ms] = len(tmp_list)
             group_tot_volumes[ms] = len(df_parsed.loc[
                                             (df_parsed['group_id'] == g) &
-                                            (df_parsed["min_pscd_model"] == ms)])
+                                            (df_parsed["min_ec_model"] == ms)])
 
         # Loop through all of the model types for this group to get cost points
         index = 0
@@ -5977,13 +5977,13 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
         # print(f" models list {models}")
         for mod in models:
             min_sku_index = 0
-            if pscd_config[mod]["index"] >= min_value_from_min_sku_list:
+            if ec_config[mod]["index"] >= min_value_from_min_sku_list:
                 native_cost_tot = df_parsed.loc[(df_parsed['group_id'] == g), "total_cost"].sum()
                 # print(f"processing model {mod} {g}")
                 # first run use the first vd drive count
-                disk_count = pscd_config.get(mod).get("vd_count")
+                disk_count = ec_config.get(mod).get("vd_count")
 
-                # Calculate the PSCD capacity size to be licensed for this group.  This includes the replacement capacity (reduced by the efficiency rate) plus the capacity needed for snapshots
+                # Calculate the EC capacity size to be licensed for this group.  This includes the replacement capacity (reduced by the efficiency rate) plus the capacity needed for snapshots
                 group_prov_cap_all = 0
                 # group_cap_cost_all = 0
                 # group_total_cost_all = 0
@@ -5998,7 +5998,7 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                 additional_skus_for_this_run = []
 
                 for sku in min_sku_list:
-                    if int(pscd_config.get(mod).get("index")) >= int(pscd_config.get(sku).get("index")):
+                    if int(ec_config.get(mod).get("index")) >= int(ec_config.get(sku).get("index")):
                         # print(f"error in sku? {sku} {type(group_prov_cap)}")
                         group_prov_cap_all = int(group_prov_cap[sku]) + group_prov_cap_all
                         # group_cap_cost_all = group_cap_cost[sku] + group_cap_cost_all
@@ -6022,58 +6022,58 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                 # print(f"clump for mod {mod} iops {group_tot_iops_all} cap {group_prov_cap_all}")
                 # 04/06 MR Option to ingore all snaphot costs if change rate is zero
                 if float(monthly_snapshot_rate) == 0:
-                    group_pscd_licensed_capacity = (group_prov_cap_all * efficiency)
+                    group_ec_licensed_capacity = (group_prov_cap_all * efficiency)
                 else:
-                    group_pscd_licensed_capacity = (group_prov_cap_all * efficiency) * (1 + (monthly_snapshot_rate / 2))
-                group_pscd_capacity_matrix = pscd_config[mod]["raw_cap_matrix"]
-                # group_pscd_capacity_matrix_str = pscd_config[mod]["raw_cap_matrix"].apply(lambda row_list: [key for d in row_list for key in d.keys()]).tolist()
-                group_pscd_capacity_matrix_str = pscd_config[mod]["raw_cap_matrix"].keys()
-                # print(group_pscd_capacity_matrix_str)
-                group_pscd_capacity_matrix_list = [int(x) for x in group_pscd_capacity_matrix_str]
+                    group_ec_licensed_capacity = (group_prov_cap_all * efficiency) * (1 + (monthly_snapshot_rate / 2))
+                group_ec_capacity_matrix = ec_config[mod]["raw_cap_matrix"]
+                # group_ec_capacity_matrix_str = ec_config[mod]["raw_cap_matrix"].apply(lambda row_list: [key for d in row_list for key in d.keys()]).tolist()
+                group_ec_capacity_matrix_str = ec_config[mod]["raw_cap_matrix"].keys()
+                # print(group_ec_capacity_matrix_str)
+                group_ec_capacity_matrix_list = [int(x) for x in group_ec_capacity_matrix_str]
 
                 # Calculate the Initial Usable capacity limit for this SKU model usable_capacity = Model capacity (in TiB) * Initial usable capacity rate
-                # print(f" mod {mod} max {max(group_pscd_capacity_matrix_list)} list {group_pscd_capacity_matrix_list} init {initial_size_rate} drr {data_reduction_ratio}")
-                usable_cap_limit = max(group_pscd_capacity_matrix_list) * initial_size_rate * data_reduction_ratio
+                # print(f" mod {mod} max {max(group_ec_capacity_matrix_list)} list {group_ec_capacity_matrix_list} init {initial_size_rate} drr {data_reduction_ratio}")
+                usable_cap_limit = max(group_ec_capacity_matrix_list) * initial_size_rate * data_reduction_ratio
 
                 # Get the disk sizes (for virtual drives) for this model
-                # disk_sizes = pscd_config.get(mod).get("disk_sizes")
+                # disk_sizes = ec_config.get(mod).get("disk_sizes")
 
                 # get array count for fist min-size sku in list (there will alwasy be at least one)
-                # print(f"error 7 {group_pscd_licensed_capacity} {data_reduction_ratio}")
+                # print(f"error 7 {group_ec_licensed_capacity} {data_reduction_ratio}")
 
-                total_array_count = (group_pscd_licensed_capacity + usable_cap_limit - 1) // usable_cap_limit
+                total_array_count = (group_ec_licensed_capacity + usable_cap_limit - 1) // usable_cap_limit
                 # print(f"group {g} tot array count {total_array_count}")
                 if total_array_count < 1:
                     total_array_count = 1
 
                 # Calculate how much capacity is required for all raw disk across all arrays for this group
-                raw_vd_disk_capacity = group_pscd_licensed_capacity / (total_array_count * data_reduction_ratio)
+                raw_vd_disk_capacity = group_ec_licensed_capacity / (total_array_count * data_reduction_ratio)
 
                 # find the smallest drive from the disk size list that is bigger then the size needed to meet this capacity
-                eligible_sizes = [num for num in group_pscd_capacity_matrix_list if num >= raw_vd_disk_capacity]
+                eligible_sizes = [num for num in group_ec_capacity_matrix_list if num >= raw_vd_disk_capacity]
                 # print(eligible_sizes)
                 # If the filtered list is not empty, return the minimum value that is greater then the required size
                 if eligible_sizes:
                     per_array_capacity = min(eligible_sizes)
-                    max_raw_vd_disk_size = group_pscd_capacity_matrix[str(per_array_capacity)]
+                    max_raw_vd_disk_size = group_ec_capacity_matrix[str(per_array_capacity)]
                 else:
-                    per_array_capacity = max(group_pscd_capacity_matrix_list)
-                    max_raw_vd_disk_size = group_pscd_capacity_matrix[str(per_array_capacity)]
+                    per_array_capacity = max(group_ec_capacity_matrix_list)
+                    max_raw_vd_disk_size = group_ec_capacity_matrix[str(per_array_capacity)]
 
                 # Calculate the VD drives capacity cost
                 vd_capacity_cost_per_month = vd_cap_monthly_price * int(
                     disk_count) * max_raw_vd_disk_size * total_array_count
 
                 # Calculate the VD drives iop cost
-                vd_iops_cost_per_month = vd_iops_monthly_price * (pscd_config.get(mod).get("VdIOPS") - 3000) * int(
+                vd_iops_cost_per_month = vd_iops_monthly_price * (ec_config.get(mod).get("VdIOPS") - 3000) * int(
                     disk_count) * total_array_count
 
                 # Calculate the VD Drives bw cost
-                vd_bw_cost_per_month = vd_bw_monthly_price * (pscd_config.get(mod).get("VdBW") - 125) * int(
+                vd_bw_cost_per_month = vd_bw_monthly_price * (ec_config.get(mod).get("VdBW") - 125) * int(
                     disk_count) * total_array_count
 
-                total_pscd_iops = total_array_count * pscd_config.get(mod).get("usable_limit_iops")
-                if (total_pscd_iops * pscd_config.get(mod).get("iops_over_provision_rate")) < group_tot_iops_all:
+                total_ec_iops = total_array_count * ec_config.get(mod).get("usable_limit_iops")
+                if (total_ec_iops * ec_config.get(mod).get("iops_over_provision_rate")) < group_tot_iops_all:
                     if not ignore_iops_provisioned_flag:
                         iops_viable = "low iops"
                     else:
@@ -6081,9 +6081,9 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                 else:
                     iops_viable = "default"
                 if not iops_viable == "low iops":
-                    pscd_tot_cost = (pscd_license_cost_per_gib * group_pscd_licensed_capacity) + (group_fixed_cost[mod] * total_array_count) + vd_capacity_cost_per_month + vd_iops_cost_per_month + vd_bw_cost_per_month
+                    ec_tot_cost = (ec_license_cost_per_gib * group_ec_licensed_capacity) + (group_fixed_cost[mod] * total_array_count) + vd_capacity_cost_per_month + vd_iops_cost_per_month + vd_bw_cost_per_month
                     # if g ==1 or g =="1":
-                    #    print("pscd_tot_cost",pscd_tot_cost, "iops", group_tot_iops_all )
+                    #    print("ec_tot_cost",ec_tot_cost, "iops", group_tot_iops_all )
                     # 04/13 MR - adding check for max number of volumes
                     if max_volumes_per_array_flag and (group_tot_volumes_all > (max_volumes_per_array * total_array_count)):
                         # print(f"adjust for volume count 1 {max_volumes_per_array} {(max_volumes_per_array * total_array_count)} volumes {group_tot_volumes_all} old array count {total_array_count}")
@@ -6099,10 +6099,10 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                                         "min_sku_index": 0,
                                         "year": 1,
                                         "iops_viable": iops_viable,
-                                        "pscd_tot_cost": pscd_tot_cost,
+                                        "ec_tot_cost": ec_tot_cost,
                                         "azure_native_cost": native_cost_tot,
-                                        "license_cost": (pscd_license_cost_per_gib * group_pscd_licensed_capacity),
-                                        "pscd_capacity_size": group_pscd_licensed_capacity,
+                                        "license_cost": (ec_license_cost_per_gib * group_ec_licensed_capacity),
+                                        "ec_capacity_size": group_ec_licensed_capacity,
                                         "number_of_arrays": total_array_count,
                                         "fixed_cost_per_month": (group_fixed_cost[mod] * total_array_count),
                                         "vd_capacity_cost_per_month": vd_capacity_cost_per_month,
@@ -6113,8 +6113,8 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                                         "vd_disk_size": max_raw_vd_disk_size,
                                         "number_of_compute": group_tot_compute_all,
                                         "number_of_volumes": group_tot_volumes_all,
-                                        "pscd_iops": total_pscd_iops,
-                                        "lc": group_pscd_licensed_capacity,
+                                        "ec_iops": total_ec_iops,
+                                        "lc": group_ec_licensed_capacity,
                                         "ti": group_tot_iops_all,
                                         "tv": group_tot_volumes_all,
                                         "region": reg
@@ -6126,10 +6126,10 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                                "min_sku_index": 0,
                                "year": 1,
                                "iops_viable": iops_viable,
-                               "pscd_tot_cost": pscd_tot_cost,
+                               "ec_tot_cost": ec_tot_cost,
                                "azure_native_cost": native_cost_tot,
-                               "license_cost": (pscd_license_cost_per_gib * group_pscd_licensed_capacity),
-                               "pscd_capacity_size": group_pscd_licensed_capacity,
+                               "license_cost": (ec_license_cost_per_gib * group_ec_licensed_capacity),
+                               "ec_capacity_size": group_ec_licensed_capacity,
                                "number_of_arrays": total_array_count,
                                "fixed_cost_per_month": (group_fixed_cost[mod] * total_array_count),
                                "vd_capacity_cost_per_month": vd_capacity_cost_per_month,
@@ -6140,8 +6140,8 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                                "vd_disk_size": max_raw_vd_disk_size,
                                "number_of_compute": group_tot_compute_all,
                                "number_of_volumes": group_tot_volumes_all,
-                               "pscd_iops": total_pscd_iops,
-                               "lc": group_pscd_licensed_capacity,
+                               "ec_iops": total_ec_iops,
+                               "lc": group_ec_licensed_capacity,
                                "ti": group_tot_iops_all,
                                "tv": group_tot_volumes_all,
                                "region": reg
@@ -6152,11 +6152,11 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                     # print("in hanna")
                     # Calculate how many more IOPs were required
                     missing_iops = (group_tot_iops_all - (
-                            total_pscd_iops * pscd_config.get(mod).get("iops_over_provision_rate")))
-                    # translate pscd iops to overprovisioned iops
-                    iops_increment = pscd_config.get(mod).get("iops_over_provision_rate") * pscd_config.get(
+                            total_ec_iops * ec_config.get(mod).get("iops_over_provision_rate")))
+                    # translate ec iops to overprovisioned iops
+                    iops_increment = ec_config.get(mod).get("iops_over_provision_rate") * ec_config.get(
                         mod).get("usable_limit_iops")
-                    # Calculate how many more pscd arrays are required to meet the iops requirements using math floor as a ceiling divsion operation
+                    # Calculate how many more ec arrays are required to meet the iops requirements using math floor as a ceiling divsion operation
                     missing_arrays = (missing_iops + iops_increment - 1) // iops_increment
                     # update total array count
                     total_array_count = total_array_count + missing_arrays
@@ -6170,26 +6170,26 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                         total_array_count = new_array_vol_count
                         iops_viable = iops_viable + " volume adjustment"
 
-                    total_pscd_iops = total_array_count * pscd_config.get(mod).get("usable_limit_iops")
+                    total_ec_iops = total_array_count * ec_config.get(mod).get("usable_limit_iops")
                     # For IOPs consideration only use the maximum disk count size
-                    disk_count = pscd_config.get(mod).get("vd_count")
+                    disk_count = ec_config.get(mod).get("vd_count")
 
                     # Calculate how much capacity is required for all raw disk across all arrays for this group
-                    raw_vd_disk_capacity = group_pscd_licensed_capacity / (total_array_count * data_reduction_ratio)
+                    raw_vd_disk_capacity = group_ec_licensed_capacity / (total_array_count * data_reduction_ratio)
                     # print("raw_vd_disk_capacity = ", raw_vd_disk_capacity)
 
                     # find the smallest drive from the disk size list that is bigger then the size needed to meet this capacity
-                    eligible_sizes = [num for num in group_pscd_capacity_matrix_list if num >= raw_vd_disk_capacity]
+                    eligible_sizes = [num for num in group_ec_capacity_matrix_list if num >= raw_vd_disk_capacity]
                     # print(eligible_sizes)
                     # If the filtered list is not empty, return the minimum value that is greater then the required size
                     if eligible_sizes:
                         per_array_capacity = min(eligible_sizes)
                         # print(per_array_capacity, "per array cap")
-                        max_raw_vd_disk_size = group_pscd_capacity_matrix[str(per_array_capacity)]
+                        max_raw_vd_disk_size = group_ec_capacity_matrix[str(per_array_capacity)]
                     else:
-                        per_array_capacity = max(group_pscd_capacity_matrix_list)
+                        per_array_capacity = max(group_ec_capacity_matrix_list)
                         # print(per_array_capacity, "per array cap 2")
-                        max_raw_vd_disk_size = group_pscd_capacity_matrix[str(per_array_capacity)]
+                        max_raw_vd_disk_size = group_ec_capacity_matrix[str(per_array_capacity)]
                     # print("max_raw_vd_disk_size = ", max_raw_vd_disk_size, g)
                     # Calculate the VD drives capacity cost
                     vd_capacity_cost_per_month = vd_cap_monthly_price * int(
@@ -6197,12 +6197,12 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
 
                     # Calculate the VD drives iop cost
                     vd_iops_cost_per_month = vd_iops_monthly_price * (
-                            pscd_config.get(mod).get("VdIOPS") - 3000) * int(disk_count) * total_array_count
+                            ec_config.get(mod).get("VdIOPS") - 3000) * int(disk_count) * total_array_count
 
                     # Calculate the VD Drives bw cost
-                    vd_bw_cost_per_month = vd_bw_monthly_price * (pscd_config.get(mod).get("VdBW") - 125) * int(
+                    vd_bw_cost_per_month = vd_bw_monthly_price * (ec_config.get(mod).get("VdBW") - 125) * int(
                         disk_count) * total_array_count
-                    pscd_tot_cost = (pscd_license_cost_per_gib * group_pscd_licensed_capacity) + (group_fixed_cost[mod] * total_array_count) + vd_capacity_cost_per_month + vd_iops_cost_per_month + vd_bw_cost_per_month
+                    ec_tot_cost = (ec_license_cost_per_gib * group_ec_licensed_capacity) + (group_fixed_cost[mod] * total_array_count) + vd_capacity_cost_per_month + vd_iops_cost_per_month + vd_bw_cost_per_month
 
                     array_costs.append({"group_id": g,
                                         "sku": mod,
@@ -6210,10 +6210,10 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                                         "min_sku_index": 0,
                                         "year": 1,
                                         "iops_viable": iops_viable,
-                                        "pscd_tot_cost": pscd_tot_cost,
+                                        "ec_tot_cost": ec_tot_cost,
                                         "azure_native_cost": native_cost_tot,
-                                        "license_cost": (pscd_license_cost_per_gib * group_pscd_licensed_capacity),
-                                        "pscd_capacity_size": group_pscd_licensed_capacity,
+                                        "license_cost": (ec_license_cost_per_gib * group_ec_licensed_capacity),
+                                        "ec_capacity_size": group_ec_licensed_capacity,
                                         "number_of_arrays": total_array_count,
                                         "fixed_cost_per_month": (group_fixed_cost[mod] * total_array_count),
                                         "vd_capacity_cost_per_month": vd_capacity_cost_per_month,
@@ -6224,8 +6224,8 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                                         "vd_disk_size": max_raw_vd_disk_size,
                                         "number_of_compute": group_tot_compute_all,
                                         "number_of_volumes": group_tot_volumes_all,
-                                        "pscd_iops": total_pscd_iops,
-                                        "lc": group_pscd_licensed_capacity,
+                                        "ec_iops": total_ec_iops,
+                                        "lc": group_ec_licensed_capacity,
                                         "ti": group_tot_iops_all,
                                         "tv": group_tot_volumes_all,
                                         "region": reg
@@ -6239,27 +6239,27 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                         group_prov_cap_all = group_prov_cap[mod2]
                         # 04/06 MR Option to ingore all snaphot costs if change rate is zero
                         if float(monthly_snapshot_rate) == 0:
-                            group_pscd_licensed_capacity = (group_prov_cap_all * efficiency)
+                            group_ec_licensed_capacity = (group_prov_cap_all * efficiency)
                         else:
-                            group_pscd_licensed_capacity = (group_prov_cap_all * efficiency) * (1 + (monthly_snapshot_rate / 2))
-                        group_pscd_capacity_matrix = pscd_config[mod]["raw_cap_matrix"]
-                        # print("no error here: ", pscd_config[mod]["raw_cap_matrix"])
-                        # group_pscd_capacity_matrix_str = pscd_config[mod]["raw_cap_matrix"].apply( lambda row_list: [key for d in row_list for key in d.keys()]).tolist()
-                        group_pscd_capacity_matrix_str = pscd_config[mod]["raw_cap_matrix"].keys()
-                        group_pscd_capacity_matrix_list = [int(x) for x in group_pscd_capacity_matrix_str]
+                            group_ec_licensed_capacity = (group_prov_cap_all * efficiency) * (1 + (monthly_snapshot_rate / 2))
+                        group_ec_capacity_matrix = ec_config[mod]["raw_cap_matrix"]
+                        # print("no error here: ", ec_config[mod]["raw_cap_matrix"])
+                        # group_ec_capacity_matrix_str = ec_config[mod]["raw_cap_matrix"].apply( lambda row_list: [key for d in row_list for key in d.keys()]).tolist()
+                        group_ec_capacity_matrix_str = ec_config[mod]["raw_cap_matrix"].keys()
+                        group_ec_capacity_matrix_list = [int(x) for x in group_ec_capacity_matrix_str]
 
                         # Calculate the Initial Usable capacity limit for this SKU model usable_capacity = Model capacity (in TiB) * Initial usable capacity rate
-                        usable_cap_limit = int(pscd_config.get(mod2).get("usable_limit_capacity")) * initial_size_rate
+                        usable_cap_limit = int(ec_config.get(mod2).get("usable_limit_capacity")) * initial_size_rate
 
                         # Get the disk sizes (for virtual drives) for this model
-                        disk_sizes = pscd_config.get(mod2).get("disk_sizes")
+                        disk_sizes = ec_config.get(mod2).get("disk_sizes")
 
                         # get array count for fist min-size sku in list (there will alwasy be at least one)
 
-                        total_array_count = (group_pscd_licensed_capacity + usable_cap_limit - 1) // usable_cap_limit
-                        total_pscd_iops = total_array_count * pscd_config.get(mod2).get("usable_limit_iops")
+                        total_array_count = (group_ec_licensed_capacity + usable_cap_limit - 1) // usable_cap_limit
+                        total_ec_iops = total_array_count * ec_config.get(mod2).get("usable_limit_iops")
                         # print(f"vlurp for {mod} min-sku {mod2} iops {group_tot_iops[mod2]} array count {total_array_count}")
-                        if (total_pscd_iops * pscd_config.get(mod2).get("iops_over_provision_rate")) < group_tot_iops[mod2]:
+                        if (total_ec_iops * ec_config.get(mod2).get("iops_over_provision_rate")) < group_tot_iops[mod2]:
                             if not ignore_iops_provisioned_flag:
                                 iops_viable = "low iops"
                             else:
@@ -6268,21 +6268,21 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                             iops_viable = "default"
                         if not iops_viable == "low iops":
 
-                            group_pscd_capacity_matrix = pscd_config[mod2]["raw_cap_matrix"]
-                            # print("no error here: ", pscd_config[mod2]["raw_cap_matrix"])
-                            # group_pscd_capacity_matrix_str = pscd_config[mod2]["raw_cap_matrix"].apply(lambda row_list: [key for d in row_list for key in d.keys()]).tolist()
-                            group_pscd_capacity_matrix_str = pscd_config[mod2]["raw_cap_matrix"].keys()
-                            group_pscd_capacity_matrix_list = [int(x) for x in group_pscd_capacity_matrix_str]
+                            group_ec_capacity_matrix = ec_config[mod2]["raw_cap_matrix"]
+                            # print("no error here: ", ec_config[mod2]["raw_cap_matrix"])
+                            # group_ec_capacity_matrix_str = ec_config[mod2]["raw_cap_matrix"].apply(lambda row_list: [key for d in row_list for key in d.keys()]).tolist()
+                            group_ec_capacity_matrix_str = ec_config[mod2]["raw_cap_matrix"].keys()
+                            group_ec_capacity_matrix_list = [int(x) for x in group_ec_capacity_matrix_str]
 
                             # Calculate the Initial Usable capacity limit for this SKU model usable_capacity = Model capacity (in TiB) * Initial usable capacity rate
-                            usable_cap_limit = max(group_pscd_capacity_matrix_list) * initial_size_rate * data_reduction_ratio
+                            usable_cap_limit = max(group_ec_capacity_matrix_list) * initial_size_rate * data_reduction_ratio
 
                             # Get the disk sizes (for virtual drives) for this model
-                            # disk_sizes = pscd_config.get(mod).get("disk_sizes")
+                            # disk_sizes = ec_config.get(mod).get("disk_sizes")
 
                             # get array count for fist min-size sku in list (there will alwasy be at least one)
 
-                            total_array_count = (group_pscd_licensed_capacity + usable_cap_limit - 1) // usable_cap_limit
+                            total_array_count = (group_ec_licensed_capacity + usable_cap_limit - 1) // usable_cap_limit
                             if total_array_count < 1:
                                 total_array_count = 1
 
@@ -6297,18 +6297,18 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                                 iops_viable = iops_viable + " volume adjustment"
 
                             # Calculate how much capacity is required for all raw disk across all arrays for this group
-                            raw_vd_disk_capacity = group_pscd_licensed_capacity / (total_array_count * data_reduction_ratio)
+                            raw_vd_disk_capacity = group_ec_licensed_capacity / (total_array_count * data_reduction_ratio)
 
                             # find the smallest drive from the disk size list that is bigger then the size needed to meet this capacity
-                            eligible_sizes = [num for num in group_pscd_capacity_matrix_list if num >= raw_vd_disk_capacity]
+                            eligible_sizes = [num for num in group_ec_capacity_matrix_list if num >= raw_vd_disk_capacity]
                             # print(eligible_sizes)
                             # If the filtered list is not empty, return the minimum value that is greater then the required size
                             if eligible_sizes:
                                 per_array_capacity = min(eligible_sizes)
-                                max_raw_vd_disk_size = group_pscd_capacity_matrix[str(per_array_capacity)]
+                                max_raw_vd_disk_size = group_ec_capacity_matrix[str(per_array_capacity)]
                             else:
-                                per_array_capacity = max(group_pscd_capacity_matrix_list)
-                                max_raw_vd_disk_size = group_pscd_capacity_matrix[str(per_array_capacity)]
+                                per_array_capacity = max(group_ec_capacity_matrix_list)
+                                max_raw_vd_disk_size = group_ec_capacity_matrix[str(per_array_capacity)]
 
                             # Calculate the VD drives capacity cost
                             vd_capacity_cost_per_month = vd_cap_monthly_price * int(
@@ -6316,13 +6316,13 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
 
                             # Calculate the VD drives iop cost
                             vd_iops_cost_per_month = vd_iops_monthly_price * (
-                                    pscd_config.get(mod2).get("VdIOPS") - 3000) * int(
+                                    ec_config.get(mod2).get("VdIOPS") - 3000) * int(
                                 disk_count) * total_array_count
 
                             # Calculate the VD Drives bw cost
                             vd_bw_cost_per_month = vd_bw_monthly_price * (
-                                    pscd_config.get(mod2).get("VdBW") - 125) * int(disk_count) * total_array_count
-                            pscd_tot_cost = (pscd_license_cost_per_gib * group_pscd_licensed_capacity) + (group_fixed_cost[mod2] * total_array_count) + vd_capacity_cost_per_month + vd_iops_cost_per_month + vd_bw_cost_per_month
+                                    ec_config.get(mod2).get("VdBW") - 125) * int(disk_count) * total_array_count
+                            ec_tot_cost = (ec_license_cost_per_gib * group_ec_licensed_capacity) + (group_fixed_cost[mod2] * total_array_count) + vd_capacity_cost_per_month + vd_iops_cost_per_month + vd_bw_cost_per_month
 
                             array_costs.append({"group_id": g,
                                                 "sku": mod,
@@ -6330,10 +6330,10 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                                                 "min_sku_index": min_sku_index,
                                                 "year": 1,
                                                 "iops_viable": iops_viable,
-                                                "pscd_tot_cost": pscd_tot_cost,
+                                                "ec_tot_cost": ec_tot_cost,
                                                 "azure_native_cost": 0,
-                                                "license_cost": (pscd_license_cost_per_gib * group_pscd_licensed_capacity),
-                                                "pscd_capacity_size": group_pscd_licensed_capacity,
+                                                "license_cost": (ec_license_cost_per_gib * group_ec_licensed_capacity),
+                                                "ec_capacity_size": group_ec_licensed_capacity,
                                                 "number_of_arrays": total_array_count,
                                                 "fixed_cost_per_month": (group_fixed_cost[mod2] * total_array_count),
                                                 "vd_capacity_cost_per_month": vd_capacity_cost_per_month,
@@ -6344,8 +6344,8 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                                                 "vd_disk_size": max_raw_vd_disk_size,
                                                 "number_of_compute": group_tot_compute[mod2],
                                                 "number_of_volumes": group_tot_volumes[mod2],
-                                                "pscd_iops": total_pscd_iops,
-                                                "lc": group_pscd_licensed_capacity,
+                                                "ec_iops": total_ec_iops,
+                                                "lc": group_ec_licensed_capacity,
                                                 "ti": group_tot_iops[mod2],
                                                 "tv": group_tot_volumes[mod2],
                                                 "region": reg
@@ -6359,11 +6359,11 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                             # print("in claude")
                             # Calculate how many more IOPs were required
                             missing_iops = (group_tot_iops[mod2] - (
-                                    total_pscd_iops * pscd_config.get(mod2).get("iops_over_provision_rate")))
-                            # translate pscd iops to overprovisioned iops
-                            iops_increment = pscd_config.get(mod).get("iops_over_provision_rate") * pscd_config.get(
+                                    total_ec_iops * ec_config.get(mod2).get("iops_over_provision_rate")))
+                            # translate ec iops to overprovisioned iops
+                            iops_increment = ec_config.get(mod).get("iops_over_provision_rate") * ec_config.get(
                                 mod2).get("usable_limit_iops")
-                            # Calculate how many more pscd arrays are required to meet the iops requirements using math floor as a ceiling divsion operation
+                            # Calculate how many more ec arrays are required to meet the iops requirements using math floor as a ceiling divsion operation
                             missing_arrays = (missing_iops + iops_increment - 1) // iops_increment
                             # update total array count
                             total_array_count = total_array_count + missing_arrays
@@ -6377,35 +6377,35 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                                 # print(f"new array count {total_array_count}")
                                 iops_viable = iops_viable + " volume adjustment"
 
-                            total_pscd_iops = total_array_count * pscd_config.get(mod2).get("usable_limit_iops")
+                            total_ec_iops = total_array_count * ec_config.get(mod2).get("usable_limit_iops")
                             # For IOPs consideration only use the maximum disk count size
-                            disk_count = pscd_config.get(mod).get("vd_count")
+                            disk_count = ec_config.get(mod).get("vd_count")
                             # Calculate how much capacity is required for each raw disk across all arrays for this group
 
                             # Calculate how much capacity is required for all raw disk across all arrays for this group
-                            raw_vd_disk_capacity = group_pscd_licensed_capacity / (total_array_count * data_reduction_ratio)
+                            raw_vd_disk_capacity = group_ec_licensed_capacity / (total_array_count * data_reduction_ratio)
 
                             # find the smallest drive from the disk size list that is bigger then the size needed to meet this capacity
-                            eligible_sizes = [num for num in group_pscd_capacity_matrix_list if num >= raw_vd_disk_capacity]
+                            eligible_sizes = [num for num in group_ec_capacity_matrix_list if num >= raw_vd_disk_capacity]
                             # print(eligible_sizes)
                             # If the filtered list is not empty, return the minimum value that is greater then the required size
                             if eligible_sizes:
                                 per_array_capacity = min(eligible_sizes)
-                                max_raw_vd_disk_size = group_pscd_capacity_matrix[str(per_array_capacity)]
+                                max_raw_vd_disk_size = group_ec_capacity_matrix[str(per_array_capacity)]
                             else:
-                                per_array_capacity = max(group_pscd_capacity_matrix_list)
-                                max_raw_vd_disk_size = group_pscd_capacity_matrix[str(per_array_capacity)]
+                                per_array_capacity = max(group_ec_capacity_matrix_list)
+                                max_raw_vd_disk_size = group_ec_capacity_matrix[str(per_array_capacity)]
 
                             # Calculate the VD drives capacity cost
                             vd_capacity_cost_per_month = vd_cap_monthly_price * int(
                                 disk_count) * max_raw_vd_disk_size * total_array_count
 
                             # Calculate the VD drives iop cost
-                            vd_iops_cost_per_month = vd_iops_monthly_price * (pscd_config.get(mod).get("VdIOPS") - 3000) * int(disk_count) * total_array_count
+                            vd_iops_cost_per_month = vd_iops_monthly_price * (ec_config.get(mod).get("VdIOPS") - 3000) * int(disk_count) * total_array_count
 
                             # Calculate the VD Drives bw cost
-                            vd_bw_cost_per_month = vd_bw_monthly_price * (pscd_config.get(mod).get("VdBW") - 125) * int(disk_count) * total_array_count
-                            pscd_tot_cost = (pscd_license_cost_per_gib * group_pscd_licensed_capacity) + (group_fixed_cost[mod2] * total_array_count) + vd_capacity_cost_per_month + vd_iops_cost_per_month + vd_bw_cost_per_month
+                            vd_bw_cost_per_month = vd_bw_monthly_price * (ec_config.get(mod).get("VdBW") - 125) * int(disk_count) * total_array_count
+                            ec_tot_cost = (ec_license_cost_per_gib * group_ec_licensed_capacity) + (group_fixed_cost[mod2] * total_array_count) + vd_capacity_cost_per_month + vd_iops_cost_per_month + vd_bw_cost_per_month
 
                             # 04/13 MR - adding check for max number of volumes
 
@@ -6415,10 +6415,10 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                                                 "min_sku_index": min_sku_index,
                                                 "year": 1,
                                                 "iops_viable": iops_viable,
-                                                "pscd_tot_cost": pscd_tot_cost,
+                                                "ec_tot_cost": ec_tot_cost,
                                                 "azure_native_cost": 0,
-                                                "license_cost": (pscd_license_cost_per_gib * group_pscd_licensed_capacity),
-                                                "pscd_capacity_size": group_pscd_licensed_capacity,
+                                                "license_cost": (ec_license_cost_per_gib * group_ec_licensed_capacity),
+                                                "ec_capacity_size": group_ec_licensed_capacity,
                                                 "number_of_arrays": total_array_count,
                                                 "fixed_cost_per_month": (group_fixed_cost[mod2] * total_array_count),
                                                 "vd_capacity_cost_per_month": vd_capacity_cost_per_month,
@@ -6429,8 +6429,8 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                                                 "vd_disk_size": max_raw_vd_disk_size,
                                                 "number_of_compute": group_tot_compute_all,
                                                 "number_of_volumes": group_tot_volumes_all,
-                                                "pscd_iops": total_pscd_iops,
-                                                "lc": group_pscd_licensed_capacity,
+                                                "ec_iops": total_ec_iops,
+                                                "lc": group_ec_licensed_capacity,
                                                 "ti": group_tot_iops_all,
                                                 "tv": group_tot_volumes_all,
                                                 "region": reg
@@ -6443,7 +6443,7 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
 
                 sku_index = sku_index + 1
 
-    cost_sheet, df_groups = calc_best_pscd_config(array_costs, pscd_config, pscd_sku_bias, group_list, df_parsed, 1)
+    cost_sheet, df_groups = calc_best_ec_config(array_costs, ec_config, ec_sku_bias, group_list, df_parsed, 1)
     # print(f"cost_sheet: {cost_sheet}")
     # print(f"df_groups shape: {df_groups.shape}")
 
@@ -6487,14 +6487,14 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                 "Account": _group_attr(account),
                 "Availability Zone": _group_attr(zone),
                 "VNet": _group_attr(vnet),
-                "PSCD Config": sku,
+                "EC Config": sku,
                 "Original Capacity": orig_cap,
                 "Y1 Save Ratio": save_ratio,
                 "Y1 PSC Lic $": row["license_cost"],
-                "Y1 PSC Res $": row["pscd_tot_cost"] - row["license_cost"],
-                "Y1 PSC Tot $": row["pscd_tot_cost"],
+                "Y1 PSC Res $": row["ec_tot_cost"] - row["license_cost"],
+                "Y1 PSC Tot $": row["ec_tot_cost"],
                 "Y1 Azure Native $": row["azure_native_cost"],
-                "Y1 PSC Licensed Capacity": row["pscd_capacity_size"],
+                "Y1 PSC Licensed Capacity": row["ec_capacity_size"],
                 "Y1 PSC Array Count": row["number_of_arrays"],
                 "Azure Paid Capacity": orig_cap,
                 "Num Compute": cs.get("tc", 0),
@@ -6504,7 +6504,7 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
         # Subprefix token: sum of drr + growth + license cost, plus a datetime stamp
         if save_outputs:
             stamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            token = f"{(data_reduction_ratio + growth_rate + pscd_license_cost_per_gib):.4f}"
+            token = f"{(data_reduction_ratio + growth_rate + ec_license_cost_per_gib):.4f}"
             prefix = f"{s3_path}/tco/{token}_{stamp}/"
             saved_prefix = prefix
             upload_df_to_s3(pd.DataFrame(cost_sheet), "cost_sheet.csv", prefix)
@@ -6515,7 +6515,7 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
             # parameters alongside the run so the TCO Review tab can label it and
             # show the parameters on hover. Skip large/derived structures.
             try:
-                skip_keys = {"pscd_data", "source_data_config", "region_list", "description"}
+                skip_keys = {"ec_data", "source_data_config", "region_list", "description"}
                 meta_params = {k: v for k, v in params.items()
                                if k not in skip_keys and not isinstance(v, (dict, list))}
                 meta = {
@@ -6737,7 +6737,7 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
             "Account": _gattr(g, account_col),
             "Availability Zone": _gattr(g, zone_col),
             "VNet": _gattr(g, vnet_col),
-            "PSCD Config": ecan_sku,
+            "EC Config": ecan_sku,
             "Original Capacity": orig_cap,
             "Y1 Save Ratio": save_ratio,
             "Y1 PSC Lic $": everpure_total,   # whole Everpure cost is discountable
@@ -6769,8 +6769,8 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
 
         dfg_rows.append({
             "group_id": g, "sku": ecan_sku, "sku_index": 0, "year": 1, "region": reg,
-            "license_cost": everpure_total, "pscd_tot_cost": everpure_total,
-            "azure_native_cost": azure_native, "pscd_capacity_size": billed_cap,
+            "license_cost": everpure_total, "ec_tot_cost": everpure_total,
+            "azure_native_cost": azure_native, "ec_capacity_size": billed_cap,
             "number_of_arrays": num_arrays,
             "capacity_cost": round(capacity_cost, 2),
             "throughput_cost": round(throughput_cost, 2),
@@ -6801,7 +6801,7 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
         upload_df_to_s3(df_groups, "df_groups.csv", prefix)
         upload_df_to_s3(pd.DataFrame(group_rows), "group_summary.csv", prefix)
         try:
-            skip_keys = {"pscd_data", "source_data_config", "region_list",
+            skip_keys = {"ec_data", "source_data_config", "region_list",
                          "description", "ecan_config"}
             meta_params = {k: v for k, v in params.items()
                            if k not in skip_keys and not isinstance(v, (dict, list))}
@@ -6886,7 +6886,7 @@ def project_growth_over_time(params, df_parsed, df_azure_disk, df_ec_infra, s3_p
                 "lic":   round(g["license"], 2),      # Everpure licensing (raw, pre-discount)
                 "infra": round(g["infra"], 2),        # Everpure infrastructure
                 "az":    round(g["azure_native"], 2), # Azure native (raw, pre-discount)
-                "lc":    round(g["lic_cap"], 2),      # PSCD licensed capacity
+                "lc":    round(g["lic_cap"], 2),      # EC licensed capacity
                 "cap":   round(g.get("cap", 0), 2),   # Azure Native: capacity portion
                 "thr":   round(g.get("thr", 0), 2),   # Azure Native: throughput portion
             }
@@ -6905,10 +6905,10 @@ def project_growth_over_time(params, df_parsed, df_azure_disk, df_ec_infra, s3_p
         "periods":          periods,
     }
 
-def calc_best_pscd_config(array_costs,pscd_config, pscd_sku_bias,group_list,df_csv,years):
+def calc_best_ec_config(array_costs,ec_config, ec_sku_bias,group_list,df_csv,years):
 
     df_groups = pd.DataFrame(array_costs)
-    # print("in trackka", pscd_sku_bias)
+    # print("in trackka", ec_sku_bias)
     cost_sheet = []
     its = []
     if years == 1:
@@ -6927,9 +6927,9 @@ def calc_best_pscd_config(array_costs,pscd_config, pscd_sku_bias,group_list,df_c
                     (df_groups['group_id'] == g) &
                     (df_groups['year'] == y), "sku"].tolist()
             if not skus_for_g:
-                # Group produced no viable PSCD configuration during sizing
+                # Group produced no viable EC configuration during sizing
                 # (unsupported region / no models / no capacity) — skip it.
-                print(f"skipping group {g}: no viable PSCD configuration")
+                print(f"skipping group {g}: no viable EC configuration")
                 continue
             first_sku = sorted(skus_for_g)[0]
             azure_native_tot_cost = max(df_groups.loc[
@@ -6956,15 +6956,15 @@ def calc_best_pscd_config(array_costs,pscd_config, pscd_sku_bias,group_list,df_c
             if g == 222 or g == "222":
                 pass
                 #print("bokka 5, ", azure_native_tot_cost)
-                # print(f"sku types for group {g} : {sku_types_in_this_group} {sku_indexs} {pscd_sku_bias}")
+                # print(f"sku types for group {g} : {sku_types_in_this_group} {sku_indexs} {ec_sku_bias}")
             # if processing year one and the bias sku is in this group, evaluate that one first.
 
-            if pscd_sku_bias in sku_types_in_this_group:
-                # print(f"in bias {pscd_sku_bias} {y}")
+            if ec_sku_bias in sku_types_in_this_group:
+                # print(f"in bias {ec_sku_bias} {y}")
                 # Remove this sku index from later consideration
                 sku_index_for_bias = df_groups.loc[
                     (df_groups['group_id'] == g) &
-                    (df_groups['sku'] == pscd_sku_bias) &
+                    (df_groups['sku'] == ec_sku_bias) &
                     (df_groups['year'] == y), "sku_index"].tolist()[0]
                 if g == 222 or g == "222":
                     pass
@@ -6972,19 +6972,19 @@ def calc_best_pscd_config(array_costs,pscd_config, pscd_sku_bias,group_list,df_c
                 sku_indexs.remove(sku_index_for_bias)
 
 
-                pscd_total_cost = df_groups.loc[
+                ec_total_cost = df_groups.loc[
                     (df_groups['group_id'] == g) &
                     (df_groups['year'] == y) &
-                    (df_groups['sku'] == pscd_sku_bias), "pscd_tot_cost"].sum()
-                #print(f"pscd_total_cost for group {g} {pscd_total_cost}")
+                    (df_groups['sku'] == ec_sku_bias), "ec_tot_cost"].sum()
+                #print(f"ec_total_cost for group {g} {ec_total_cost}")
 
-                savings = azure_native_tot_cost - pscd_total_cost
+                savings = azure_native_tot_cost - ec_total_cost
 
                 items_in_sku_set = df_groups.loc[
                     (df_groups['group_id'] == g) &
                     (df_groups['year'] == y) &
                     (df_groups['sku_index'] == sku_index_for_bias) &
-                    (df_groups['sku'] == pscd_sku_bias), "min_sku_index"].unique().tolist()
+                    (df_groups['sku'] == ec_sku_bias), "min_sku_index"].unique().tolist()
                 #print(f"num of items in sku set for group {g} {len(items_in_sku_set)}")
                 tc = 0
                 tv = 0
@@ -7023,7 +7023,7 @@ def calc_best_pscd_config(array_costs,pscd_config, pscd_sku_bias,group_list,df_c
                             (df_groups['sku_index'] == sku_index_for_bias) &
                             (df_groups["min_sku_index"] == item), "region"].unique().tolist()[0]
                         if add_first:
-                            it = {"g": g, "i": sku_index_for_bias, "min_sku_index": item, "instance_type": instance_type, "lc": lc, "ti": ti, "tv": tv, "tc": pscd_total_cost, "region": reg}
+                            it = {"g": g, "i": sku_index_for_bias, "min_sku_index": item, "instance_type": instance_type, "lc": lc, "ti": ti, "tv": tv, "tc": ec_total_cost, "region": reg}
                             add_first = False
                         else:
                             it = {"g": g, "i": sku_index_for_bias, "min_sku_index": item, "instance_type": instance_type, "lc": lc, "ti": ti, "tv": tv, "tc": 0, "region": reg}
@@ -7048,7 +7048,7 @@ def calc_best_pscd_config(array_costs,pscd_config, pscd_sku_bias,group_list,df_c
                     final_group_value = {
                         "group_id": g,
                         "sku_index": sku_index_for_bias,
-                        "sku": pscd_sku_bias,
+                        "sku": ec_sku_bias,
                         "year": y,
                         f"{year_column_name_prefix} Savings": savings,
                         f"{year_column_name_prefix} Azure Native Cost": azure_native_tot_cost,
@@ -7063,7 +7063,7 @@ def calc_best_pscd_config(array_costs,pscd_config, pscd_sku_bias,group_list,df_c
                     group_done = True
                 else:
                     current_best_sku_index = sku_index_for_bias
-                    current_best_sku = pscd_sku_bias
+                    current_best_sku = ec_sku_bias
                     current_best_savings = savings
                     its_value = its
             if not group_done:
@@ -7077,10 +7077,10 @@ def calc_best_pscd_config(array_costs,pscd_config, pscd_sku_bias,group_list,df_c
                             (df_groups['group_id'] == g) &
                             (df_groups['year'] == y) &
                             (df_groups['sku_index'] == si), "sku"].unique().tolist()[0]
-                    pscd_total_cost = df_groups.loc[
+                    ec_total_cost = df_groups.loc[
                         (df_groups['group_id'] == g) &
                         (df_groups['year'] == y) &
-                        (df_groups['sku_index'] == si), "pscd_tot_cost"].sum()
+                        (df_groups['sku_index'] == si), "ec_tot_cost"].sum()
                     if y == 1:
 
                         # Get values needed for multi-year evaluations
@@ -7125,7 +7125,7 @@ def calc_best_pscd_config(array_costs,pscd_config, pscd_sku_bias,group_list,df_c
                                 (df_groups['sku_index'] == si) &
                                 (df_groups["min_sku_index"] == item), "region"].unique().tolist()[0]
                             if add_first:
-                                it = {"g": g, "i": si, "min_sku_index": item, "instance_type": instance_type, "lc": lc, "ti": ti, "tv": tv, "tc": pscd_total_cost, "region": reg}
+                                it = {"g": g, "i": si, "min_sku_index": item, "instance_type": instance_type, "lc": lc, "ti": ti, "tv": tv, "tc": ec_total_cost, "region": reg}
                                 add_first = False
                             else:
                                 it = {"g": g, "i": si, "min_sku_index": item, "instance_type": instance_type, "lc": lc, "ti": ti, "tv": tv, "tc": 0, "region": reg}
@@ -7134,10 +7134,10 @@ def calc_best_pscd_config(array_costs,pscd_config, pscd_sku_bias,group_list,df_c
                                 pass
                                 # print("bokka 2, ", it, items_in_sku_set, sku_indexs)
 
-                    savings = azure_native_tot_cost - pscd_total_cost
+                    savings = azure_native_tot_cost - ec_total_cost
                     if g == 222 or g == "222":
                         pass
-                        # print("bokka 8, ", sku_name, pscd_total_cost, savings, current_best_savings, y, si)
+                        # print("bokka 8, ", sku_name, ec_total_cost, savings, current_best_savings, y, si)
                     #print(f" eeert savings: {savings}")
                     if savings > current_best_savings:
                         current_best_sku = sku_name
@@ -7201,7 +7201,7 @@ def calc_best_pscd_config(array_costs,pscd_config, pscd_sku_bias,group_list,df_c
                 }
                 if len(its_value) == 0 and (g == 222 or g == "222"):
                     pass
-                    # print("boka boka",final_group_value, years, pscd_sku_bias)
+                    # print("boka boka",final_group_value, years, ec_sku_bias)
 
                 cost_sheet.append(final_group_value)
 
@@ -7233,9 +7233,9 @@ MAX_UPLOAD_BYTES = 99 * 1024 * 1024
 # ── Customer list S3 key ───────────────────────────────────
 CUSTOMER_LIST_S3_KEY = "TCO-GUI/_config/customer_list.json"
 
-PSCD_CONFIG_KEY = "TCO-GUI/_config/pscd_config.json"
+EC_CONFIG_KEY = "TCO-GUI/_config/ec_config.json"
 
-# Azure Native (ECAN) config — same _config prefix as the PSCD config.
+# Azure Native (ECAN) config — same _config prefix as the EC config.
 ECAN_CONFIG_KEY = "TCO-GUI/_config/ecan_config.json"
 
 ALLOWED_EXTENSIONS = {

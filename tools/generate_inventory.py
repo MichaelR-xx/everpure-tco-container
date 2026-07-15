@@ -30,7 +30,7 @@ Spec shape (see tools/sample_spec.json):
       "vnets": ["vnet-01"],               # optional, default ["vnet-01"]
       "scale_by": "instance",
       "num_instances_in_each_subscription_zone_combination": 36,
-      "minimum_pscd_sku": "V20MP2R2",
+      "minimum_ec_sku": "V20MP2R2",
       "drive_config": [
         {"drive_type": "Premium_LRS",   "root": true,  "capacityGB": 128},
         {"drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 2048,
@@ -55,7 +55,7 @@ PROVISIONED_DISK_TYPES = {"premiumv2_lrs", "ultrassd_lrs"}
 # Disk Size always map; VM name maps to "Compute Count (VMs)" on first upload).
 COLUMNS = ["vm_name", "description", "region", "zone", "subscription", "vnet",
            "diskType", "capacity", "iops", "mbps", "status", "osType", "root",
-           "minimum_pscd_sku"]
+           "minimum_ec_sku"]
 
 
 def _slug(s):
@@ -105,7 +105,7 @@ def generate_rows(spec):
             print(f"  warning: disks[id={aid}] scale_by='{scale_by}' not supported; "
                   f"treating as 'instance'.", file=sys.stderr)
         n = int(arche.get("num_instances_in_each_subscription_zone_combination", 1))
-        grp_min_sku = str(arche.get("minimum_pscd_sku", "none"))
+        grp_min_sku = str(arche.get("minimum_ec_sku", "none"))
         drives = arche.get("drive_config", [])
         if not region:
             raise ValueError(f"disks[id={aid}]: 'region' is required.")
@@ -122,7 +122,7 @@ def generate_rows(spec):
                         # between archetypes that share a vm_name_prefix).
                         vm_name = f"{prefix}-{_slug(desc)}-{_slug(sub)}-z{_slug(zone)}-{_slug(vnet)}-{i:03d}"
                         for (dtype, provisioned), drive in zip(validated, drives):
-                            drv_min_sku = str(drive.get("minimum_pscd_sku", "none"))
+                            drv_min_sku = str(drive.get("minimum_ec_sku", "none"))
                             eff_min_sku = drv_min_sku if drv_min_sku.lower() != "none" else grp_min_sku
                             rows.append({
                                 "vm_name": vm_name,
@@ -138,7 +138,7 @@ def generate_rows(spec):
                                 "status": str(drive.get("status", "Attached")),
                                 "osType": os_type,
                                 "root": _as_bool_str(drive.get("root", False)),
-                                "minimum_pscd_sku": eff_min_sku,
+                                "minimum_ec_sku": eff_min_sku,
                             })
     return rows
 

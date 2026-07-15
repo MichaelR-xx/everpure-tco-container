@@ -14,7 +14,7 @@ If `-o` is omitted, the CSV is written to `<spec.output>/<customer>_inventory.cs
 
 Then in the app: **S3 Upload → drop the CSV → Parse**. The headers auto-map to the tool's fields
 (the two required fields, *Disk Type* and *Disk Size*, always map; VM name maps to *Compute Count
-(VMs)*). `description` and `minimum_pscd_sku` are extra info columns and stay unmapped.
+(VMs)*). `description` and `minimum_ec_sku` are extra info columns and stay unmapped.
 
 ## Spec format
 
@@ -30,7 +30,7 @@ Top level: `customer`, optional `output` (directory for the CSV), and `disks` �
 | `subscriptions`, `zones`, `vnets` | **location mapping** — expanded as a cartesian product |
 | `scale_by` | `instance` (only supported mode) |
 | `num_instances_in_each_subscription_zone_combination` | VMs per location combination |
-| `minimum_pscd_sku` | group-level minimum PSCD SKU (drive-level overrides when not `"none"`) |
+| `minimum_ec_sku` | group-level minimum EC SKU (drive-level overrides when not `"none"`) |
 | `drive_config` | list of drives each VM gets |
 
 Each drive:
@@ -41,7 +41,7 @@ Each drive:
 | `root` | boolean — is this the OS/root disk |
 | `capacityGB` | provisioned size in GB |
 | `iops`, `mbps` | **provisioned IOPS / throughput — only valid for `PremiumV2_LRS` and `UltraSSD_LRS`** (Premium SSD v2 and Ultra Disk). Setting them on any other, tier-based type is a validation error. |
-| `minimum_pscd_sku` | optional per-drive override |
+| `minimum_ec_sku` | optional per-drive override |
 
 ### Expansion
 

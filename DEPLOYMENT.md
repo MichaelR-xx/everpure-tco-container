@@ -119,7 +119,7 @@ selected either on the login screen or — for headless/containers — via env v
 | **Other S3** | your own S3 bucket | `EVERPURE_STORAGE=others3` + `EVERPURE_S3_BUCKET` + AWS creds |
 
 The image defaults to **Local Storage** on the `/data` volume and seeds the required
-engine config files (`pscd_config.json`, `ecan_config.json`), so it runs with **no AWS
+engine config files (`ec_config.json`, `ecan_config.json`), so it runs with **no AWS
 account**. Data survives restarts as long as you keep the `everpure_data` volume.
 
 **Use S3 instead** (compose example — edit `docker-compose.yml` or pass `-e`):
@@ -175,7 +175,7 @@ pip install -r requirements.txt
 export FLASK_SECRET_KEY="$(openssl rand -hex 32)"
 export EVERPURE_STORAGE=local EVERPURE_LOCAL_ROOT="$HOME/everpure-data"
 mkdir -p "$HOME/everpure-data/EverpureTCO/TCO-GUI/_config"
-cp notes/pscd_config.json notes/ecan_config.json "$HOME/everpure-data/EverpureTCO/TCO-GUI/_config/"
+cp notes/ec_config.json notes/ecan_config.json "$HOME/everpure-data/EverpureTCO/TCO-GUI/_config/"
 python app.py                      # http://127.0.0.1:5000  (install Chrome for PDF export)
 ```
 
@@ -198,7 +198,7 @@ python app.py
 | `docker build` fails pulling the base image or on `pip install` (TLS/cert errors) | Corporate proxy intercepting TLS. Set Docker Desktop proxies + a CA bundle; retry. |
 | Docker Desktop won't start on Windows | Virtualization not enabled in BIOS/UEFI, or WSL2 missing — see §1 step 0/1. |
 | Page won't load at `http://localhost:5061`/`5060` | Browsers block those ports (SIP/SIPS). Use `5000` (default) or another normal port. |
-| *"pscd_config.json was not found…"* on Run Analysis | Engine configs missing for the backend. The image seeds them for Local; for S3 place them under `TCO-GUI/_config/`. |
+| *"ec_config.json was not found…"* on Run Analysis | Engine configs missing for the backend. The image seeds them for Local; for S3 place them under `TCO-GUI/_config/`. |
 | PDF export produces an empty/zero-byte file | Chromium missing/blocked. The image bundles it; natively install Chrome or set `CHROMIUM_PATH`. |
 | Analysis is slow | It fetches live Azure prices; increase `AZURE_PRICE_WORKERS` (default 8) and ensure good outbound bandwidth. |
 | Data disappeared after `down -v` | `-v` deletes the volume. Use `docker compose down` (no `-v`) to keep data; back up per §5. |

@@ -1166,9 +1166,9 @@ body.theme-mantis .btn-sm.save, body.theme-mantis .btn-upload, body.theme-mantis
                   <input type="number" id="param-initial-iops-full-rate" value="0.9" min="0" max="1" step="0.01" style="width:100%;padding:7px 9px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:.78rem;font-family:var(--font-mono);box-sizing:border-box;" />
                 </div>
 
-                <!-- PSCD License Cost per GiB -->
+                <!-- EC License Cost per GiB -->
                 <div style="display:flex;flex-direction:column;gap:6px;">
-                  <label style="font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">PSCD License $ / GiB</label>
+                  <label style="font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">EC License $ / GiB</label>
                   <input type="number" id="param-license-cost" value="0.06" min="0" step="0.001" style="width:100%;padding:7px 9px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:.78rem;font-family:var(--font-mono);box-sizing:border-box;" />
                 </div>
 
@@ -1754,7 +1754,7 @@ body.theme-mantis .btn-sm.save, body.theme-mantis .btn-upload, body.theme-mantis
                   <span style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Group Consolidation</span>
                 </div>
                 <div style="font-size:.66rem;color:var(--muted);margin-bottom:12px;">
-                  Re-homes every <strong>negative-savings</strong> group into a <strong>positive-savings</strong> group in the same region (balanced by PSCD licensed capacity), builds a new <em>consolidated</em> parsed dataset, re-runs the TCO, and prices the intra-region VNet peering the moves would require. The negative/positive split uses the commercial discounts currently set on the controls above.
+                  Re-homes every <strong>negative-savings</strong> group into a <strong>positive-savings</strong> group in the same region (balanced by EC licensed capacity), builds a new <em>consolidated</em> parsed dataset, re-runs the TCO, and prices the intra-region VNet peering the moves would require. The negative/positive split uses the commercial discounts currently set on the controls above.
                 </div>
                 <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
                   <label style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Peered traffic per licensed TiB (GiB/mo)</label>
@@ -1987,7 +1987,7 @@ body.theme-mantis .btn-sm.save, body.theme-mantis .btn-upload, body.theme-mantis
       <p>Select a parsed dataset on the left to see its capacity, cost, group, region, and disk-type breakdowns.</p>
       <h3>Analysis Parameters</h3>
       <ul>
-        <li><strong>Deployment model</strong> — <strong>Dedicated</strong> (PSCD array sizing) or <strong>Azure Native</strong> (capacity + throughput model).</li>
+        <li><strong>Deployment model</strong> — <strong>Dedicated</strong> (EC array sizing) or <strong>Azure Native</strong> (capacity + throughput model).</li>
         <li><strong>Growth</strong>, <strong>Data Reduction Ratio</strong>, <strong>Monthly Snapshot Rate</strong>, <strong>Initial Max Size</strong>, <strong>Usage Efficiency</strong>, default <strong>SKU</strong>, <strong>Years</strong>, and <strong>Projection Cycle</strong>. Advanced settings expose pricing term, per-tier limits, and more.</li>
       </ul>
       <h3>🔎 Search data / Use-case filter <span style="font-weight:400;color:var(--muted);">(optional)</span></h3>
@@ -3961,7 +3961,7 @@ function resetGuiToDefaults(delayMs) {
     document.getElementById("field-drr-toggle").style.display   = azn ? "flex" : "none";
     document.getElementById("method-hint").textContent = azn
       ? "capacity + throughput pricing from ecan_config — no infrastructure lookup"
-      : "PSCD array sizing with live infrastructure pricing";
+      : "EC array sizing with live infrastructure pricing";
     updateParamsSummary();
   }
 
@@ -4059,7 +4059,7 @@ function resetGuiToDefaults(delayMs) {
       price_mode:                      document.getElementById("param-price-mode").value,
       num_of_years:                    parseInt(document.getElementById("param-num-years").value, 10),
       initial_iops_full_rate:          parseFloat(document.getElementById("param-initial-iops-full-rate").value),
-      pscd_license_cost_per_gib:       parseFloat(document.getElementById("param-license-cost").value),
+      ec_license_cost_per_gib:       parseFloat(document.getElementById("param-license-cost").value),
       mid_tier_ratio_limit_V10:        parseFloat(document.getElementById("param-mid-ratio").value),
       mid_tier_capacity_limit_V10_GiB: parseInt(document.getElementById("param-mid-cap").value, 10),
       top_tier_ratio_limit_V20:        parseFloat(document.getElementById("param-top-ratio").value),
@@ -4228,7 +4228,7 @@ function resetGuiToDefaults(delayMs) {
       price_mode: ["Pricing term", String],
       num_of_years: ["Years", String],
       initial_iops_full_rate: ["Initial IOPS full rate", String],
-      pscd_license_cost_per_gib: ["License $/GiB", String],
+      ec_license_cost_per_gib: ["License $/GiB", String],
       mid_tier_ratio_limit_V10: ["Mid-tier ratio (V10)", String],
       mid_tier_capacity_limit_V10_GiB: ["Mid-tier cap V10 (GiB)", String],
       top_tier_ratio_limit_V20: ["Top-tier ratio (V20)", String],
@@ -4951,7 +4951,7 @@ function resetGuiToDefaults(delayMs) {
         ? primaryGroups.has(String(r["desc"]))
         : (includeAll ? true : (rate >= minSav && regionOk));
       return {
-        group: r["desc"], region: r["Region"], sku: r["PSCD Config"],
+        group: r["desc"], region: r["Region"], sku: r["EC Config"],
         account: r["Account"], zone: r["Availability Zone"], vnet: r["VNet"],
         origCap: num(r["Original Capacity"]), licCap: num(r["Y1 PSC Licensed Capacity"]),
         numCompute: num(r["Num Compute"]), numVolumes: num(r["Num Volumes"]), arrayCount: num(r["Y1 PSC Array Count"]),
@@ -5056,7 +5056,7 @@ function resetGuiToDefaults(delayMs) {
     // Blended $/GiB/month based on the given capacity; "" when capacity is 0.
     const perGib = (cost, cap) => cap ? (cost / cap).toFixed(4) : "";
     const head = ["Group","Region","Account","Availability Zone","VNet","SKU",
-                  "VMs","Volumes","Arrays","Original Cap (GiB)","PSCD Lic Cap (GiB)",
+                  "VMs","Volumes","Arrays","Original Cap (GiB)","EC Lic Cap (GiB)",
                   ...(showMinCap ? ["Min Cap"] : []),
                   "Mig Month","Azure Native $","Everpure Lic $","Everpure Infra $","Everpure Total $",
                   "Azure $/GiB (orig)","EP $/GiB (orig)","EP $/GiB (lic)",
@@ -5737,7 +5737,7 @@ function resetGuiToDefaults(delayMs) {
   function renderData(computed, tot, months) {
     // "Min Cap" column only appears for Azure Native runs (where the flag exists).
     const showMinCap = computed.some(c => c.minCap !== undefined && c.minCap !== null && c.minCap !== "");
-    const head = ["Group","Region","Account","Avail. Zone","VNet","SKU","VMs","Volumes","Arrays","Original Cap (GiB)","PSCD Lic Cap (GiB)",
+    const head = ["Group","Region","Account","Avail. Zone","VNet","SKU","VMs","Volumes","Arrays","Original Cap (GiB)","EC Lic Cap (GiB)",
                   ...(showMinCap ? ["Min Cap"] : []),
                   "Mig Month","Azure Native $","Everpure Lic $","Everpure Infra $","Everpure Total $",
                   "Azure $/GiB (orig)","EP $/GiB (orig)","EP $/GiB (lic)","Savings $","Savings %","Incl."];
@@ -6176,7 +6176,7 @@ function resetGuiToDefaults(delayMs) {
         </tr></thead><tbody>
         ${row("Groups", consolBefore.groups.toLocaleString(), consolAfter.groups.toLocaleString(),
               `<span style="color:${dGroups <= 0 ? "var(--success,#7ab87a)" : "var(--danger)"};">${dGroups >= 0 ? "+" : "−"}${Math.abs(dGroups)}</span>`)}
-        ${row("Everpure Total (PSCD)", yv(bE), yv(aE), dCell(aE - bE, true))}
+        ${row("Everpure Total (EC)", yv(bE), yv(aE), dCell(aE - bE, true))}
         ${row("VNet Peering", yv(0), yv(peer), dCell(peer, true))}
         ${row("<strong>Everpure + Peering</strong>", `<strong>${fmtUsd(bE * m)}</strong>`, `<strong>${fmtUsd(aTot * m)}</strong>`, `<strong>${dCell(aTot - bE, true)}</strong>`, "color:var(--accent);")}
       </tbody></table></div>

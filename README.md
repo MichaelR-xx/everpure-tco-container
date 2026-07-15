@@ -2,7 +2,7 @@
 
 A Flask web app that estimates and compares the multi-year **Total Cost of Ownership
 (TCO)** of running storage on **Azure managed disks** versus **Pure Storage / Everpure
-(PSCD)**. Upload a workload inventory CSV, map its columns, run a cost analysis, and
+(EC)**. Upload a workload inventory CSV, map its columns, run a cost analysis, and
 review multi-year cost, growth, migration, and **consolidation** breakdowns.
 
 This is the **containerized, cross-platform** edition. It runs the same on **Linux,
@@ -57,7 +57,7 @@ export EVERPURE_STORAGE=local
 export EVERPURE_LOCAL_ROOT="$HOME/everpure-data"     # data goes under here/EverpureTCO
 # seed the engine configs once (first run only):
 mkdir -p "$HOME/everpure-data/EverpureTCO/TCO-GUI/_config"
-cp notes/pscd_config.json "$HOME/everpure-data/EverpureTCO/TCO-GUI/_config/"
+cp notes/ec_config.json "$HOME/everpure-data/EverpureTCO/TCO-GUI/_config/"
 cp notes/ecan_config.json "$HOME/everpure-data/EverpureTCO/TCO-GUI/_config/"
 python app.py     # serves http://127.0.0.1:5000
 ```
@@ -95,7 +95,7 @@ used, configurable via `AWS_ARCH_FILE`.)
   now configurable / auto-detected per OS.
 - **Multithreaded analysis.** The dominant cost of an analysis — the many Azure
   retail-price lookups — is fanned out across a thread pool (per region×product for
-  Azure disk pricing, and per region for the PSCD infrastructure pricing). Tune with
+  Azure disk pricing, and per region for the EC infrastructure pricing). Tune with
   `AZURE_PRICE_WORKERS` (default 8).
 - **Paginated data tables.** The **Results → Group Breakdown** table and the
   **TCO Review → Data** view now load **50 rows per page** by default, with a
@@ -148,7 +148,7 @@ templates/index.html       # entire single-page frontend (inline JS/CSS)
 requirements.txt           # Python dependencies (Flask, boto3, pandas, requests, waitress)
 Dockerfile                 # container image (Python 3.12 + Chromium + waitress)
 docker-compose.yml         # one-command run with a persistent data volume
-notes/                     # pscd_config.json / ecan_config.json (engine configs) + architecture
+notes/                     # ec_config.json / ecan_config.json (engine configs) + architecture
 tools/                     # workload inventory CSV generator
 static/                    # (empty)
 ```
