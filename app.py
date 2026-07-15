@@ -2473,6 +2473,10 @@ def results_run_analysis():
 
     try:
         df_parsed = pd.read_csv(StringIO(parsed_text), on_bad_lines="warn")
+        # Backward-compat: datasets parsed before the PSCD/CBS->EC rename carry old
+        # column names (e.g. min_pscd_model); normalize so historical runs still analyze.
+        df_parsed.columns = [c.replace("pscd", "ec") if isinstance(c, str) else c
+                             for c in df_parsed.columns]
         # print(f"Loaded parsed data from S3: {parsed_key} ({df_parsed.shape[0]} rows)")
     except Exception as exc:
         return jsonify({"error": f"Could not parse CSV: {exc}"}), 400
@@ -2482,6 +2486,9 @@ def results_run_analysis():
     try:
         obj          = s3.get_object(Bucket=s3_bucket, Key=cfg_key)
         source_data_config = json.loads(obj["Body"].read().decode("utf-8"))
+        # Backward-compat: pre-rename configs carry old 'pscd' keys (e.g. pscd_sku_bias).
+        source_data_config = {(k.replace("pscd", "ec") if isinstance(k, str) else k): v
+                              for k, v in source_data_config.items()}
         # print(source_data_config, type(source_data_config))
         params["source_data_config"] = source_data_config
     except ClientError as exc:
