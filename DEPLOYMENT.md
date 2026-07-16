@@ -6,13 +6,82 @@ as a Docker image (Python 3.12 + bundled Chromium + waitress) and also runs nati
 (no Docker) if you prefer.
 
 - **TL;DR (any machine with Docker):** `cd everpure-tco-container && docker compose up --build` → open <http://localhost:5000>.
+- **macOS, no licensed software:** `./deploy_mac.sh` (uses Colima — see the section below).
 - One-command build + self-test: `./build_and_test.sh`.
 
 ---
 
-## 1. Install Docker
+## 0. macOS — one command, no licensed software (recommended for Mac)
 
-### macOS (recommended, easiest)
+Docker Desktop is free for personal use and small businesses but needs a **paid
+subscription** for larger organizations. This repo ships **`deploy_mac.sh`**, which
+deploys the tool using **[Colima](https://github.com/abiosoft/colima)** — a free,
+open-source Docker runtime — and installs anything you're missing. No Docker
+Desktop, no license.
+
+```bash
+git clone https://github.com/MichaelR-xx/everpure-tco-container.git
+cd everpure-tco-container
+./deploy_mac.sh
+```
+
+**What it does:** checks every prerequisite — Xcode Command Line Tools, Homebrew,
+Colima, the `docker` CLI, and `docker compose` — and offers to install each missing
+one; then starts the Colima Docker VM, builds and runs the container, waits until
+it's healthy on <http://localhost:5000>, and opens it in your browser.
+
+**Options:**
+
+| Command | What it does |
+|---|---|
+| `./deploy_mac.sh` | Interactive — asks before installing anything |
+| `./deploy_mac.sh --yes` | Non-interactive — auto-installs any missing prerequisites |
+| `./deploy_mac.sh --logs` | Follow the container logs |
+| `./deploy_mac.sh --down` | Stop the app (keeps its data) |
+| `./deploy_mac.sh --destroy` | Stop the app **and** delete its data volume |
+
+> If the script isn't executable after cloning: `chmod +x deploy_mac.sh`.
+> First run downloads the Colima VM image and builds the container — allow a few minutes.
+
+### Verify it's running (with Colima / docker)
+
+After the script finishes, from the repo directory:
+
+```bash
+colima status                              # -> Colima is "running"
+docker compose ps                          # -> service "everpure-tco"  ...  Up  0.0.0.0:5000->5000/tcp
+curl -s localhost:5000/api/auth/status     # -> {"storage_kind":"local",...}  (HTTP 200 = serving)
+docker compose logs --tail 20              # startup log: waitress serving on 0.0.0.0:5000
+```
+
+Confirm a login works end to end (optional):
+
+```bash
+curl -s -X POST localhost:5000/api/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"username":"admin","password":"password123"}'
+# -> {"ok":true,"username":"admin"}
+```
+
+Then open <http://localhost:5000> and sign in (`admin` / `password123` — **change before real use**).
+For a fuller end-to-end check, run `./build_and_test.sh` (builds a throwaway image, health-checks it, prints PASS/FAIL, and cleans up).
+
+**Stop / clean up:**
+
+```bash
+./deploy_mac.sh --down      # stop the app (data kept in the everpure_data volume)
+colima stop                 # shut down the Docker VM entirely
+./deploy_mac.sh --destroy   # stop AND delete the data volume
+```
+
+---
+
+## 1. Install Docker (alternative to the Colima script above)
+
+### macOS (Docker Desktop)
+> For a **license-free** setup, prefer the `./deploy_mac.sh` (Colima) path in section 0 above.
+> Docker Desktop is fine for personal/small-business use but needs a paid subscription for larger orgs.
+
 1. Install **Docker Desktop for Mac**: <https://www.docker.com/products/docker-desktop/>
    (choose the Apple-silicon or Intel build to match your Mac), or with Homebrew:
    ```bash

@@ -15,6 +15,19 @@ volume), parallelizes the analysis, and paginates the large data tables.
 > (macOS / Windows / Linux), build & run, configuration, operations, native (no-Docker)
 > deployment, and troubleshooting.
 
+## Quick start (macOS, no licensed software)
+
+No Docker Desktop license needed — deploy with **Colima** via the bundled script,
+which checks/installs every prerequisite for you:
+
+```bash
+./deploy_mac.sh
+```
+
+It builds and runs the app, waits until it's healthy, and opens
+**http://localhost:5000**. See **[DEPLOYMENT.md § 0](DEPLOYMENT.md)** for options
+(`--yes`, `--down`, `--destroy`, `--logs`) and how to verify it's running.
+
 ## Quick start (Docker — Linux / macOS / Windows)
 
 ```bash
