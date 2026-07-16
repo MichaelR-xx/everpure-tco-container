@@ -74,9 +74,47 @@ colima stop                 # shut down the Docker VM entirely
 ./deploy_mac.sh --destroy   # stop AND delete the data volume
 ```
 
+### Windows — one command with Podman (no Docker Desktop license)
+
+The free container route on Windows is **Podman + WSL2** (needs hardware
+virtualization enabled in BIOS/UEFI and WSL2 installed). **`deploy_windows.ps1`**
+checks/installs everything and deploys:
+
+```powershell
+git clone https://github.com/MichaelR-xx/everpure-tco-container.git
+cd everpure-tco-container
+.\deploy_windows.ps1
+```
+
+It verifies virtualization + WSL2 (offering `wsl --install` if missing), installs
+**Podman** via `winget`, starts the Podman machine, sets up a compose provider,
+builds + runs the container, waits for <http://localhost:5000>, and opens it.
+
+| Command | What it does |
+|---|---|
+| `.\deploy_windows.ps1` | Interactive — asks before installing anything |
+| `.\deploy_windows.ps1 -Yes` | Non-interactive — auto-installs missing prerequisites |
+| `.\deploy_windows.ps1 -Logs` | Follow the container logs |
+| `.\deploy_windows.ps1 -Down` | Stop the app (keeps its data) |
+| `.\deploy_windows.ps1 -Destroy` | Stop the app **and** delete its data volume |
+
+> If PowerShell blocks the script: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` then re-run.
+> No virtualization/WSL2 on the machine? Use the **native (no Docker)** path in §6 instead.
+
+**Verify it's running (Podman / PowerShell):**
+
+```powershell
+podman machine list                                                    # a machine shows as Running
+podman ps                                                              # everpure-tco ... Up ... 0.0.0.0:5000->5000/tcp
+(Invoke-WebRequest http://localhost:5000/api/auth/status -UseBasicParsing).StatusCode   # 200
+podman logs --tail 20 (podman ps --format '{{.Names}}' | Select-Object -First 1)        # startup log
+```
+Then open <http://localhost:5000> and sign in (`admin` / `password123`).
+Stop / clean up: `.\deploy_windows.ps1 -Down` (and `podman machine stop` to stop the VM).
+
 ---
 
-## 1. Install Docker (alternative to the Colima script above)
+## 1. Install Docker (alternative to the deploy scripts above)
 
 ### macOS (Docker Desktop)
 > For a **license-free** setup, prefer the `./deploy_mac.sh` (Colima) path in section 0 above.
