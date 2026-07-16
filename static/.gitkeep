@@ -1,0 +1,1 @@
+# Keeps the (otherwise empty) Flask static/ dir in git so 'COPY static ./static' works after clone.
