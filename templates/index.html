@@ -5035,6 +5035,9 @@ function resetGuiToDefaults(delayMs) {
     const blended = "$" + (lastBlendedRate || 0).toFixed(4) + "/GiB/mo";
     el.innerHTML =
       `<div style="font-size:1rem;font-weight:700;color:var(--text);margin-bottom:4px;">${escHtml(customer)} — ${escHtml(scenario)}${desc ? ` · “${escHtml(desc)}”` : ""}</div>` +
+      (projMigPlanName
+        ? `<div style="font-size:.8rem;font-weight:700;color:var(--accent);margin-bottom:6px;">Migration plan applied: ${escHtml(projMigPlanName)} <span style="font-weight:400;color:var(--muted);">— headline figures are the fully-migrated steady state; the Growth Projection below ramps Everpure with the plan's timing and keeps unmigrated capacity on Azure.</span></div>`
+        : "") +
       `<div style="font-size:.7rem;color:var(--muted);white-space:pre-wrap;margin-bottom:8px;">${escHtml(analysis)}</div>` +
       `<div style="font-size:.7rem;color:var(--muted);margin-bottom:4px;"><strong>Commercial parameters:</strong> ${escHtml(commercial)}</div>` +
       `<div style="font-size:.7rem;color:var(--muted);margin-bottom:4px;"><strong>Blended Everpure license rate:</strong> ${escHtml(blended)} <span style="opacity:.8;">(incl. discount &amp; partner margin, across included groups)</span></div>` +
@@ -5113,7 +5116,7 @@ function resetGuiToDefaults(delayMs) {
     // regions) is already the first block, so no extra print header is needed.
     const graphHtml = $("tco-view-graphs").innerHTML;
     if (!graphHtml.trim()) { showMsgs(detailMsgs, ["Select a TCO run first."], "error"); return; }
-    const title = `TCO — ${selectedRun ? selectedRun.scenario : ""}`;
+    const title = `TCO — ${selectedRun ? selectedRun.scenario : ""}${projMigPlanName ? ` (migration: ${projMigPlanName})` : ""}`;
     const doc = `<!doctype html><html><head><meta charset="utf-8"><title>${escHtml(title)}</title>
       <style>
         :root{--accent:#c97a3a;--accent2:#7ab87a;--muted:#666;--text:#111;--surface2:#f0efe9;--border:#ccc;--danger:#c06050;--success:#7ab87a;--font-mono:monospace;--font-ui:Arial,Helvetica,sans-serif;}
@@ -5707,7 +5710,8 @@ function resetGuiToDefaults(delayMs) {
     const savingNet = tot.azure - everPeer;              // savings net of peering
     const rateNet   = tot.azure ? savingNet / tot.azure : 0;
     const note = `· ${nIncl} of ${nTotal} groups included · ${months} month${months === 1 ? "" : "s"}`
-      + (hasPeer ? ` · incl. VNet peering ${fmtUsd(peerMo)}/mo` : "");
+      + (hasPeer ? ` · incl. VNet peering ${fmtUsd(peerMo)}/mo` : "")
+      + (projMigPlanName ? ` · migration plan applied: ${projMigPlanName} (steady-state monthly figures; see Growth Projection for the phased trajectory)` : "");
     $("tco-included-note").textContent = note;
     // Yearly value with the monthly figure in parentheses.
     const yv = v => `${fmtUsd(v * months)} <span style="font-weight:400;color:var(--muted);font-size:.72em;">(${fmtUsd(v)}/mo)</span>`;
@@ -5778,7 +5782,7 @@ function resetGuiToDefaults(delayMs) {
         <button class="btn-sm" id="tco-data-next" style="padding:3px 10px;" ${tcoDataPage >= _pages ? "disabled" : ""}>Next ›</button>
         <span style="color:var(--text);">Showing ${_total ? _start + 1 : 0}–${_end} of ${_total} groups</span>
       </div>`;
-    let html = `<div style="font-size:.66rem;color:var(--muted);margin-bottom:8px;">Costs shown for ${months} month${months === 1 ? "" : "s"}. “Mig Month” is populated by the Evaluate button.</div>
+    let html = `<div style="font-size:.66rem;color:var(--muted);margin-bottom:8px;">Costs shown for ${months} month${months === 1 ? "" : "s"} (steady-state, fully migrated).${projMigPlanName ? ` Migration plan applied: <strong>${escHtml(projMigPlanName)}</strong> — see the Growth Projection for the phased trajectory.` : ""} “Mig Month” is the group's migration start month from the applied plan (or the Evaluate button).</div>
       ${pager}
       <div style="overflow-x:scroll;"><table style="width:100%;min-width:900px;border-collapse:collapse;font-size:.74rem;">
       <thead><tr>${head.map(h => `<th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.64rem;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;">${h}</th>`).join("")}</tr></thead><tbody>`;
@@ -6644,7 +6648,7 @@ function resetGuiToDefaults(delayMs) {
   // Fetch a saved plan's per-group timeline and fold it into the projection,
   // AND apply the commercials / group alignment / capacity the plan was built with.
   async function selectProjMigPlan(key) {
-    if (!key) { projMigPlan = null; projMigPlanName = ""; updateProjection(); return; }
+    if (!key) { projMigPlan = null; projMigPlanName = ""; evalMonthByGroup = {}; recompute(); updateProjection(); return; }
     $("tco-proj-migplan-note").textContent = "Loading plan…";
     try {
       const res = await fetch(`/api/tco/migration-plan?key=${encodeURIComponent(key)}`);
@@ -6653,6 +6657,10 @@ function resetGuiToDefaults(delayMs) {
       const map = {};
       (data.groups || []).forEach(g => { map[String(g.group)] = { start: g.start, done: g.done }; });
       projMigPlan = map;
+      // Reflect the plan's per-group start month in the Data view "Mig Month" column
+      // (previously only the Evaluate button populated this).
+      evalMonthByGroup = {};
+      Object.keys(map).forEach(gid => { if (map[gid].start != null) evalMonthByGroup[gid] = map[gid].start; });
       projMigPlanName = data.name || "";
       const opt = $("tco-proj-migplan").selectedOptions[0];
       projMigPlanName = opt ? opt.textContent : projMigPlanName;
