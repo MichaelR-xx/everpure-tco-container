@@ -636,6 +636,13 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
           Demo credentials: <code>admin</code> / <code>password123</code><br>
           or <code>demo</code> / <code>demo</code>
         </div>
+        <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
+          <label style="font-size:.68rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Restore from a backup</label>
+          <p style="font-size:.75rem;color:var(--muted);margin:4px 0 8px;">Import a previously downloaded backup (.zip). It merges into the data already loaded — entries with the same key are replaced.</p>
+          <input type="file" id="restore-file" accept=".zip,application/zip" style="display:none;">
+          <button class="btn-sm" id="restore-btn" type="button">⬆ Import backup (.zip)</button>
+          <div id="restore-msg" class="login-msg" style="margin-top:8px;"></div>
+        </div>
       </div>
 
       <button class="help-btn" id="btn-help-workflow" data-help="workflow" style="margin-top:14px;width:100%;justify-content:center;padding:9px 12px;font-size:.82rem;">📖 How to use this tool</button>
@@ -648,6 +655,10 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
       <div class="page-heading">
         <h2>🏢 Customers  <span class="badge">S3-backed</span> <button class="help-btn" data-help="customers" title="How to use this section">❓ Help</button></h2>
         <p>Select an existing customer or create a new one. The active customer determines the S3 prefix used for uploads.</p>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <button class="btn-sm" id="btn-backup-export" title="Download all customers, configs, models, workloads and runs as a .zip">⬇ Download full backup (.zip)</button>
+          <span id="backup-export-msg" class="muted" style="font-size:.78rem;"></span>
+        </div>
       </div>
 
       <div class="json-layout">
@@ -2639,6 +2650,41 @@ btnLogin.addEventListener("click", doLogin);
 [loginUser, loginPass].forEach(el =>
   el.addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); })
 );
+
+/* ════════ BACKUP / RESTORE ════════ */
+// Export (authenticated): stream the whole data set as a .zip via a cookie-auth GET.
+(function(){
+  const ex = document.getElementById("btn-backup-export");
+  if (ex) ex.addEventListener("click", () => {
+    const m = document.getElementById("backup-export-msg");
+    if (m) m.textContent = "Preparing download…";
+    window.location = "/api/backup/export";
+    if (m) setTimeout(() => { m.textContent = "Download started."; }, 1500);
+  });
+
+  // Import (available on the login page, pre-auth): merge a backup .zip into storage.
+  const btn = document.getElementById("restore-btn");
+  const file = document.getElementById("restore-file");
+  const msg = document.getElementById("restore-msg");
+  if (btn && file) {
+    btn.addEventListener("click", () => file.click());
+    file.addEventListener("change", async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      msg.textContent = "Importing backup…";
+      const fd = new FormData(); fd.append("file", f);
+      try {
+        const r = await fetch("/api/backup/import", { method: "POST", credentials: "same-origin", body: fd });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "Import failed");
+        msg.textContent = `✓ Imported ${d.imported} object(s)${d.skipped ? " (" + d.skipped + " skipped)" : ""}. Sign in to see the merged data.`;
+      } catch (err) {
+        msg.textContent = "Could not import: " + err.message;
+      } finally {
+        e.target.value = "";
+      }
+    });
+  }
+})();
 
 // Reset the entire GUI to defaults by reloading the page. Used when the context
 // changes (login/logout, switching the active customer/scenario) so no stale

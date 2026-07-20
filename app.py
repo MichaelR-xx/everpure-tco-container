@@ -4157,6 +4157,77 @@ def workload_import():
     return jsonify({"ok": True, "name": name, "region": region, "items": items,
                     "registered": registered, "missing": missing})
 
+# ══════════════════════════════════════════════════════════
+#  Backup / restore — export or import the entire data set
+# ══════════════════════════════════════════════════════════
+# Everything the app persists lives under the TCO-GUI/ prefix in the active
+# storage backend (customer list, EC/EC-AN config, user models, saved workloads,
+# mapping templates, and every customer's uploads / parsed data / TCO runs).
+BACKUP_PREFIX = "TCO-GUI/"
+
+@app.route("/api/backup/export", methods=["GET"])
+@login_required
+def backup_export():
+    """Download the entire data set (everything under TCO-GUI/) as a single ZIP."""
+    import zipfile
+    s3 = _s3_client()
+    buf = BytesIO()
+    count = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=s3_bucket, Prefix=BACKUP_PREFIX):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                try:
+                    data = s3.get_object(Bucket=s3_bucket, Key=key)["Body"].read()
+                except Exception as exc:
+                    print(f"backup: skipped {key}: {exc}")
+                    continue
+                z.writestr(key, data)
+                count += 1
+        z.writestr("_backup_manifest.json", json.dumps({
+            "app": "everpure-azure-tco", "created": datetime.now().isoformat(),
+            "object_count": count,
+            "storage": _storage_offering_location(_session_storage()),
+        }, indent=2))
+    buf.seek(0)
+    fname = f"everpure-backup-{datetime.now().strftime('%Y%m%d%H%M%S')}.zip"
+    return Response(buf.getvalue(), mimetype="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+@app.route("/api/backup/import", methods=["POST"])
+def backup_import():
+    """Restore/merge a backup ZIP into the active storage backend. Adds every
+    object from the archive on top of what is already loaded (same key = replaced).
+    Available from the login page (pre-auth) — writes only under TCO-GUI/."""
+    import zipfile
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "No backup file was provided."}), 400
+    try:
+        z = zipfile.ZipFile(BytesIO(f.read()))
+    except Exception as exc:
+        return jsonify({"error": f"That is not a valid backup .zip ({exc})."}), 400
+    s3 = _s3_client()
+    imported, skipped = 0, 0
+    for name in z.namelist():
+        if name.endswith("/") or name == "_backup_manifest.json":
+            continue
+        # Only restore app data, and refuse path traversal.
+        if not name.startswith(BACKUP_PREFIX) or ".." in name.split("/"):
+            skipped += 1
+            continue
+        try:
+            s3.put_object(Bucket=s3_bucket, Key=name, Body=z.read(name), ContentType=_guess_ct(name))
+            imported += 1
+        except Exception as exc:
+            print(f"import: could not write {name}: {exc}")
+            skipped += 1
+    if imported == 0:
+        return jsonify({"error": "No importable objects found (a backup .zip contains "
+                                 "TCO-GUI/… entries)."}), 400
+    return jsonify({"ok": True, "imported": imported, "skipped": skipped})
+
 def get_ec_size_n_cost_data(regions, customer, directory, ec):
 
     file_name_ec_cost = "ec_infra_resource_costs.csv"
