@@ -562,6 +562,16 @@ body.theme-wipro {
 body.theme-wipro .btn-sm.save, body.theme-wipro .btn-upload,
 body.theme-wipro button.save, body.theme-wipro #btn-run-analysis { color:#fff !important; }
 
+/* Accenture — bold dark canvas with the signature bright-purple ">" mark */
+body.theme-accenture {
+  --bg:#0a0a0b; --surface:#17171b; --surface2:#212129; --border:#31313d;
+  --text:#f3f1f7; --muted:#9a94ab; --accent:#a100ff; --accent2:#c86bff;
+  --success:#3fb950; --warning:#f5a623; --danger:#f85149;
+  --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --cover-art: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 200%22><path d=%22M74 54 L128 100 L74 146%22 fill=%22none%22 stroke=%22%23a100ff%22 stroke-width=%2216%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/></svg>');
+  --cover-opacity: 0.14;
+}
+
 </style>
 </head>
 <body>
@@ -600,6 +610,7 @@ body.theme-wipro button.save, body.theme-wipro #btn-run-analysis { color:#fff !i
   <select id="theme-select" title="UI theme" style="margin-left:auto;flex-shrink:0;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.72rem;font-weight:700;padding:6px 10px;cursor:pointer;">
     <option value="everpure">Theme: Everpure</option>
     <option value="wipro">Theme: Wipro</option>
+    <option value="accenture">Theme: Accenture</option>
     <option value="minecraft">Theme: Minecraft</option>
     <option value="starwars">Theme: Star Wars</option>
     <option value="startrek">Theme: Star Trek</option>
@@ -7029,6 +7040,7 @@ function resetGuiToDefaults(delayMs) {
   const THEMES = {
     everpure: { cls: "", prefix: "" },
     wipro: { cls: "theme-wipro", prefix: "" },
+    accenture: { cls: "theme-accenture", prefix: "" },
     minecraft: {
       cls: "theme-minecraft", prefix: "⛏ ",
       tabs: { "tab-login":"Join World","tab-jsondata":"Redstone Config","tab-customers":"Villages","tab-s3upload":"Ender Chest","tab-results":"Loot Table","tab-tco":"Trading Hall","tab-logout":"Leave World" },
@@ -7060,7 +7072,7 @@ function resetGuiToDefaults(delayMs) {
       labels: { "run-analysis-label":"Strike","btn-login":"🦗 Camouflage","btn-tco-evaluate":"Ambush","btn-add-customer":"Spot Prey" },
     },
   };
-  const ALL_CLASSES = ["theme-wipro", "theme-minecraft", "theme-starwars", "theme-startrek", "theme-mtu", "theme-nuggets", "theme-mantis"];
+  const ALL_CLASSES = ["theme-wipro", "theme-accenture", "theme-minecraft", "theme-starwars", "theme-startrek", "theme-mtu", "theme-nuggets", "theme-mantis"];
 
   function firstText(el) {
     if (!el) return null;
