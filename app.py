@@ -3923,7 +3923,10 @@ def workload_save():
         mkey, model, count = r["key"], r["model"], r["count"]
         os_type = "Windows" if str(mkey).lower().startswith("sql") else "Linux"
         min_sku = model.get("suggested_minimum_ec_sku", "none") or "none"
-        prefix = re.sub(r"[^A-Za-z0-9]+", "", mkey)[:10] or "vm"
+        # Use the full model key as the VM-name prefix so instance names never
+        # collide across models (truncation caused e.g. common_server_medium and
+        # common_server_small to share a prefix and merge in the analysis).
+        prefix = re.sub(r"[^A-Za-z0-9]+", "_", mkey).strip("_") or "vm"
         for i in range(count):
             vm_name = f"{prefix}-{i:04d}"
             for d in model.get("drive_config", []):
