@@ -4091,6 +4091,69 @@ def workloads_delete(wid):
         return jsonify({"error": str(exc)}), 500
     return jsonify({"ok": True})
 
+def _clean_drive_config(drives):
+    """Validate/normalize an incoming drive_config list (import / user model)."""
+    clean = []
+    for d in (drives or []):
+        dt = str(d.get("drive_type", "")).strip()
+        if not dt:
+            continue
+        try:
+            cap = float(d.get("capacityGB"))
+        except (TypeError, ValueError):
+            continue
+        cd = {"drive_type": dt, "root": bool(d.get("root", False)), "capacityGB": cap}
+        if d.get("role"):
+            cd["role"] = str(d.get("role"))
+        if _is_provisioned(dt):
+            if d.get("iops") not in (None, ""):
+                cd["iops"] = int(float(d["iops"]))
+            if d.get("mbps") not in (None, ""):
+                cd["mbps"] = int(float(d["mbps"]))
+        clean.append(cd)
+    return clean
+
+@app.route("/api/workload/import", methods=["POST"])
+@login_required
+def workload_import():
+    """Import a workload config file: register any custom models it carries (under
+    their original keys, without overriding built-ins), and return the resolved
+    recipe so the builder can load it. Makes a config portable across deployments."""
+    body = request.get_json(force=True) or {}
+    items = _sanitize_wl_items(body.get("items"))
+    if not items:
+        return jsonify({"error": "This config file has no workload items."}), 400
+    name = str(body.get("name", "")).strip()
+    region = str(body.get("region", "")).strip() or "eastus"
+    models = body.get("models") if isinstance(body.get("models"), dict) else {}
+    builtin = _load_builtin_models()
+    users = _load_user_models()
+    registered = []
+    for key, m in models.items():
+        k = re.sub(r"[^A-Za-z0-9]+", "_", str(key)).strip("_").lower()
+        if not k or k in builtin:            # never override a built-in model
+            continue
+        drives = _clean_drive_config((m or {}).get("drive_config"))
+        if not drives:
+            continue
+        md = {"label": str((m or {}).get("label", k)).strip() or k,
+              "family": "user", "user_created": True, "drive_config": drives}
+        if str((m or {}).get("vm_size", "")).strip():
+            md["suggested_compute"] = {"vm_size": str(m["vm_size"]).strip()}
+        if str((m or {}).get("min_ec_sku", "")).strip():
+            md["suggested_minimum_ec_sku"] = str(m["min_ec_sku"]).strip()
+        users[k] = md
+        registered.append(k)
+    if registered:
+        try:
+            _save_user_models(users)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+    known = set(builtin) | set(users)
+    missing = sorted({it["model_key"] for it in items if it["model_key"] not in known})
+    return jsonify({"ok": True, "name": name, "region": region, "items": items,
+                    "registered": registered, "missing": missing})
+
 def get_ec_size_n_cost_data(regions, customer, directory, ec):
 
     file_name_ec_cost = "ec_infra_resource_costs.csv"

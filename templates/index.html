@@ -902,6 +902,12 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
           <tbody></tbody>
         </table></div>
         <div id="wl-cart-totals" style="margin-top:10px;font-size:.85rem;"></div>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <button class="btn-sm" id="wl-download">⬇ Download config file</button>
+          <button class="btn-sm" id="wl-upload">⬆ Upload config file</button>
+          <input type="file" id="wl-upload-file" accept=".json,application/json" style="display:none;">
+        </div>
+        <div id="wl-io-msg" class="muted" style="font-size:.78rem;margin-top:8px;"></div>
       </div>
 
       <div class="card">
@@ -2260,6 +2266,47 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
     if(!confirm("Delete saved workload “"+w.name+"”? (This only removes the reusable recipe.)")) return;
     try{ const r=await fetch("/api/workloads/"+encodeURIComponent(id),{method:"DELETE",credentials:"same-origin"}); const d=await r.json(); if(!r.ok) throw new Error(d.error||"Delete failed"); await wlLoadSaved(); $b("wl-load-msg").textContent="Deleted “"+w.name+"”."; }
     catch(e){ $b("wl-load-msg").textContent=e.message; }
+  };
+
+  $b("wl-download").onclick=()=>{
+    const note=$b("wl-io-msg");
+    if(!wlCart.length){ note.textContent="Add at least one model before downloading a config."; return; }
+    const name=$b("wl-name").value.trim()||"workload";
+    // Self-contained: include the definition of every referenced model so the
+    // config can be re-imported on any deployment.
+    const models={};
+    [...new Set(wlCart.map(it=>it.model_key))].forEach(k=>{
+      const m=wlModelsByKey[k];
+      if(m) models[k]={label:m.label, vm_size:m.vm_size, min_ec_sku:m.min_ec_sku, drive_config:m.drive_config};
+    });
+    const cfg={ schema:"everpure-workload/1.0", name, region:"eastus",
+      items: wlCart.map(it=> it.mode==="capacity"?{model_key:it.model_key,mode:"capacity",capacity_tib:it.capacity_tib}:{model_key:it.model_key,mode:"count",count:it.count}),
+      models };
+    const slug=(name.replace(/[^A-Za-z0-9]+/g,"-").replace(/^-+|-+$/g,"").toLowerCase())||"workload";
+    const blob=new Blob([JSON.stringify(cfg,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob); const a=document.createElement("a");
+    a.href=url; a.download="workload-"+slug+".json"; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    note.textContent="Downloaded workload-"+slug+".json ("+wlCart.length+" item(s), "+Object.keys(models).length+" model def(s)).";
+  };
+
+  $b("wl-upload").onclick=()=>$b("wl-upload-file").click();
+  $b("wl-upload-file").onchange=async(e)=>{
+    const f=e.target.files[0]; const note=$b("wl-io-msg"); if(!f) return;
+    try{
+      const cfg=JSON.parse(await f.text());
+      if(!cfg || !Array.isArray(cfg.items)) throw new Error("not a valid workload config (no items).");
+      const r=await fetch("/api/workload/import",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",
+        body:JSON.stringify({name:cfg.name,region:cfg.region,items:cfg.items,models:cfg.models})});
+      const d=await r.json(); if(!r.ok) throw new Error(d.error||"Import failed");
+      await wlLoadModels();   // pick up any models registered from the file
+      wlCart=(d.items||[]).filter(it=>wlModelsByKey[it.model_key]).map(it=> it.mode==="capacity"?{model_key:it.model_key,mode:"capacity",capacity_tib:it.capacity_tib}:{model_key:it.model_key,mode:"count",count:it.count});
+      if(d.name) $b("wl-name").value=d.name;
+      wlRenderCart();
+      note.textContent="Imported “"+(d.name||"workload")+"” — "+wlCart.length+" item(s)."
+        +(d.registered&&d.registered.length?(" Registered model(s): "+d.registered.join(", ")+"."):"")
+        +(d.missing&&d.missing.length?(" ⚠ Skipped unknown model(s): "+d.missing.join(", ")+"."):"");
+    }catch(err){ note.textContent="Could not import: "+err.message; }
+    finally{ e.target.value=""; }
   };
 
   $b("wl-save-def").onclick=async()=>{
