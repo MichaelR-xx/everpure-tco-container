@@ -372,15 +372,37 @@ def _ensure_backend_configs(storage):
                 missing.append(key)
         if not missing:
             return []
-        src, sbucket = _build_client({"kind": "mikes3"}), DEFAULT_S3_BUCKET
+        # 1) Prefer the engine configs bundled in the image (notes/*.json) — works
+        #    offline and for Local Storage backends with no AWS access. This is the
+        #    durable seed source; MikeS3 is only a fallback.
+        notes_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "notes")
+        notes_for = {EC_CONFIG_KEY: "ec_config.json", ECAN_CONFIG_KEY: "ecan_config.json"}
+        still_missing = []
         for key in missing:
+            fn = os.path.join(notes_dir, notes_for.get(key, ""))
             try:
-                data = src.get_object(Bucket=sbucket, Key=key)["Body"].read()
-                dst.put_object(Bucket=dbucket, Key=key, Body=data, ContentType="application/json")
-                seeded.append(key)
-                # print(f"Seeded {key} into {storage.get('kind')} backend")
+                if notes_for.get(key) and os.path.isfile(fn):
+                    with open(fn, "rb") as f:
+                        dst.put_object(Bucket=dbucket, Key=key, Body=f.read(), ContentType="application/json")
+                    seeded.append(key)
+                else:
+                    still_missing.append(key)
             except Exception as exc:
-                print(f"Could not seed {key} into {storage.get('kind')} backend: {exc}")
+                print(f"Could not seed {key} from bundled notes: {exc}")
+                still_missing.append(key)
+        # 2) Fall back to MikeS3 for anything the image didn't provide.
+        if still_missing:
+            try:
+                src, sbucket = _build_client({"kind": "mikes3"}), DEFAULT_S3_BUCKET
+                for key in still_missing:
+                    try:
+                        data = src.get_object(Bucket=sbucket, Key=key)["Body"].read()
+                        dst.put_object(Bucket=dbucket, Key=key, Body=data, ContentType="application/json")
+                        seeded.append(key)
+                    except Exception as exc:
+                        print(f"Could not seed {key} from MikeS3: {exc}")
+            except Exception as exc:
+                print(f"MikeS3 seeding unavailable: {exc}")
     except Exception as exc:
         print(f"Backend config seeding skipped: {exc}")
     return seeded
