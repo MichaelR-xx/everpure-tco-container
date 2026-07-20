@@ -877,6 +877,15 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
       </div>
 
       <div class="card">
+        <h3 style="margin-top:0;">Placement <span class="muted" style="font-weight:400;font-size:.8rem;">— applied to each model as you add it; change it between adds to spread capacity across zones / VNets</span></h3>
+        <div class="wl-form-row">
+          <label>Region<select id="wl-region"></select></label>
+          <label>Availability zone<select id="wl-zone"></select></label>
+          <label>VNet<select id="wl-vnet"></select></label>
+        </div>
+      </div>
+
+      <div class="card">
         <h3 style="margin-top:0;">Model library <span class="muted" style="font-weight:400;font-size:.8rem;">— VM type, performance &amp; est. monthly cost are informational</span></h3>
         <div id="wl-models" class="wl-grid"></div>
         <div style="margin-top:14px;"><button class="btn-sm" id="wl-new-model">＋ Create a new model</button></div>
@@ -909,7 +918,7 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
         <h3 style="margin-top:0;">Your workload</h3>
         <div id="wl-cart-empty" class="muted" style="font-size:.85rem;">No models added yet — use “Add” on a model above.</div>
         <div class="wl-tablewrap" id="wl-cart-wrap" style="display:none;"><table class="wl-table" id="wl-cart">
-          <thead><tr><th>Model</th><th>Selection</th><th>Instances</th><th>Actual capacity</th><th></th></tr></thead>
+          <thead><tr><th>Model</th><th>Placement</th><th>Selection</th><th>Instances</th><th>Actual capacity</th><th></th></tr></thead>
           <tbody></tbody>
         </table></div>
         <div id="wl-cart-totals" style="margin-top:10px;font-size:.85rem;"></div>
@@ -2235,7 +2244,50 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
 
   let wlSaved = [], wlSavedById = {};
 
+  // Azure regions (code, name, whether they support availability zones).
+  const WL_REGIONS = [
+    {code:"eastus",name:"East US",zones:true},{code:"eastus2",name:"East US 2",zones:true},
+    {code:"centralus",name:"Central US",zones:true},{code:"southcentralus",name:"South Central US",zones:true},
+    {code:"westus",name:"West US",zones:false},{code:"westus2",name:"West US 2",zones:true},
+    {code:"westus3",name:"West US 3",zones:true},{code:"canadacentral",name:"Canada Central",zones:true},
+    {code:"northeurope",name:"North Europe",zones:true},{code:"westeurope",name:"West Europe",zones:true},
+    {code:"uksouth",name:"UK South",zones:true},{code:"ukwest",name:"UK West",zones:false},
+    {code:"francecentral",name:"France Central",zones:true},{code:"germanywestcentral",name:"Germany West Central",zones:true},
+    {code:"swedencentral",name:"Sweden Central",zones:true},{code:"australiaeast",name:"Australia East",zones:true},
+    {code:"centralindia",name:"Central India",zones:true},{code:"japaneast",name:"Japan East",zones:true},
+    {code:"southeastasia",name:"Southeast Asia",zones:true}
+  ];
+  function wlFillZones(){
+    const reg=$b("wl-region"), zn=$b("wl-zone");
+    const r=WL_REGIONS.find(x=>x.code===reg.value)||{zones:false};
+    const cur=zn.value;
+    const opts=r.zones?[0,1,2,3]:[0];
+    zn.innerHTML=opts.map(z=>`<option value="${z}">${z===0?"0 (regional / no zone)":("Zone "+z)}</option>`).join("");
+    zn.value=opts.map(String).includes(cur)?cur:"0";   // default zone 0
+  }
+  function wlInitPlacement(){
+    const reg=$b("wl-region"), vn=$b("wl-vnet");
+    if(!reg || reg.options.length) return;   // already built
+    reg.innerHTML=WL_REGIONS.map(r=>`<option value="${r.code}"${r.code==="eastus"?" selected":""}>${wlEsc(r.name)} (${r.code})</option>`).join("");
+    vn.innerHTML=Array.from({length:10},(_,i)=>`<option value="vnet${i+1}"${i===0?" selected":""}>vnet${i+1}</option>`).join("");  // default vnet1
+    reg.onchange=wlFillZones;
+    wlFillZones();
+  }
+  function wlPlacement(){ return {region:$b("wl-region").value, zone:$b("wl-zone").value, vnet:$b("wl-vnet").value}; }
+  function wlItemsPayload(){
+    return wlCart.map(it=>{
+      const o={model_key:it.model_key, region:it.region, zone:it.zone, vnet:it.vnet};
+      if(it.mode==="capacity"){ o.mode="capacity"; o.capacity_tib=it.capacity_tib; } else { o.mode="count"; o.count=it.count; }
+      return o;
+    });
+  }
+  function wlLoadItem(it){
+    const base={model_key:it.model_key, region:it.region||"eastus", zone:(it.zone!=null?String(it.zone):"0"), vnet:it.vnet||"vnet1"};
+    return it.mode==="capacity"?{...base,mode:"capacity",capacity_tib:it.capacity_tib}:{...base,mode:"count",count:it.count};
+  }
+
   window.initBuilderTab = async function(){
+    wlInitPlacement();
     await wlLoadModels();
     await wlLoadCustomers();
     await wlLoadSaved();
@@ -2262,9 +2314,7 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
     if(!w){ note.textContent="Pick a saved workload first."; return; }
     const known=[], missing=[];
     (w.items||[]).forEach(it=>{ if(wlModelsByKey[it.model_key]) known.push(it); else missing.push(it.model_key); });
-    wlCart = known.map(it=> it.mode==="capacity"
-      ? {model_key:it.model_key,mode:"capacity",capacity_tib:it.capacity_tib}
-      : {model_key:it.model_key,mode:"count",count:it.count});
+    wlCart = known.map(wlLoadItem);
     $b("wl-name").value = w.name || "";
     wlRenderCart();
     note.textContent = "Loaded “"+w.name+"” ("+known.length+" model(s)) as a starting point — pick a customer and save."
@@ -2291,8 +2341,7 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
       if(m) models[k]={label:m.label, vm_size:m.vm_size, min_ec_sku:m.min_ec_sku, drive_config:m.drive_config};
     });
     const cfg={ schema:"everpure-workload/1.0", name, region:"eastus",
-      items: wlCart.map(it=> it.mode==="capacity"?{model_key:it.model_key,mode:"capacity",capacity_tib:it.capacity_tib}:{model_key:it.model_key,mode:"count",count:it.count}),
-      models };
+      items: wlItemsPayload(), models };
     const slug=(name.replace(/[^A-Za-z0-9]+/g,"-").replace(/^-+|-+$/g,"").toLowerCase())||"workload";
     const blob=new Blob([JSON.stringify(cfg,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob); const a=document.createElement("a");
@@ -2310,7 +2359,7 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
         body:JSON.stringify({name:cfg.name,region:cfg.region,items:cfg.items,models:cfg.models})});
       const d=await r.json(); if(!r.ok) throw new Error(d.error||"Import failed");
       await wlLoadModels();   // pick up any models registered from the file
-      wlCart=(d.items||[]).filter(it=>wlModelsByKey[it.model_key]).map(it=> it.mode==="capacity"?{model_key:it.model_key,mode:"capacity",capacity_tib:it.capacity_tib}:{model_key:it.model_key,mode:"count",count:it.count});
+      wlCart=(d.items||[]).filter(it=>wlModelsByKey[it.model_key]).map(wlLoadItem);
       if(d.name) $b("wl-name").value=d.name;
       wlRenderCart();
       note.textContent="Imported “"+(d.name||"workload")+"” — "+wlCart.length+" item(s)."
@@ -2325,7 +2374,7 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
     const name=$b("wl-name").value.trim();
     if(!name){ msg.style.display=""; msg.className="msg error"; msg.textContent="Enter a workload name to save the definition."; return; }
     if(!wlCart.length){ msg.style.display=""; msg.className="msg error"; msg.textContent="Add at least one model to the workload."; return; }
-    const items = wlCart.map(it=> it.mode==="capacity"?{model_key:it.model_key,mode:"capacity",capacity_tib:it.capacity_tib}:{model_key:it.model_key,mode:"count",count:it.count});
+    const items = wlItemsPayload();
     const payload={name, items, customer:$b("wl-customer").value.trim()};
     try{
       const r=await fetch("/api/workloads",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(payload)});
@@ -2383,7 +2432,9 @@ Cap ${Number(m.capacity_gib).toLocaleString()} GiB (${m.capacity_tib} TiB)</div>
     const mode = document.querySelector('[data-mode="'+CSS.escape(key)+'"]').value;
     const val = parseFloat(document.querySelector('[data-val="'+CSS.escape(key)+'"]').value);
     if(!(val>0)) return;
-    wlCart.push(mode==="capacity"?{model_key:key,mode:"capacity",capacity_tib:val}:{model_key:key,mode:"count",count:Math.floor(val)});
+    const p = wlPlacement();
+    const base = {model_key:key, region:p.region, zone:p.zone, vnet:p.vnet};
+    wlCart.push(mode==="capacity"?{...base,mode:"capacity",capacity_tib:val}:{...base,mode:"count",count:Math.floor(val)});
     wlRenderCart();
   }
 
@@ -2405,7 +2456,8 @@ Cap ${Number(m.capacity_gib).toLocaleString()} GiB (${m.capacity_tib} TiB)</div>
       totVMs+=res.count; totCap+=res.cap;
       const sel = it.mode==="capacity"?(it.capacity_tib+" TiB target"):(it.count+" × count");
       const capNote = it.mode==="capacity"?(res.cap.toLocaleString()+" GiB ("+(res.cap/1024).toFixed(2)+" TiB) — rounded down"):(res.cap.toLocaleString()+" GiB");
-      return `<tr><td>${wlEsc(m?m.label:it.model_key)}</td><td>${wlEsc(sel)}</td><td>${res.count.toLocaleString()}</td><td>${wlEsc(capNote)}</td><td><button class="btn-sm danger" data-rm="${i}">Remove</button></td></tr>`;
+      const place = wlEsc(it.region||"eastus")+" · z"+wlEsc(it.zone!=null?it.zone:"0")+" · "+wlEsc(it.vnet||"vnet1");
+      return `<tr><td>${wlEsc(m?m.label:it.model_key)}</td><td style="font-family:var(--font-mono);font-size:.8rem;">${place}</td><td>${wlEsc(sel)}</td><td>${res.count.toLocaleString()}</td><td>${wlEsc(capNote)}</td><td><button class="btn-sm danger" data-rm="${i}">Remove</button></td></tr>`;
     }).join("");
     tb.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{ wlCart.splice(+b.dataset.rm,1); wlRenderCart(); });
     $b("wl-cart-totals").innerHTML = "<strong>"+totVMs.toLocaleString()+"</strong> VM(s) · <strong>"+totCap.toLocaleString()+" GiB</strong> ("+(totCap/1024).toFixed(2)+" TiB) total, incl. OS drives.";
@@ -2484,7 +2536,7 @@ Cap ${Number(m.capacity_gib).toLocaleString()} GiB (${m.capacity_tib} TiB)</div>
     const customer=$b("wl-customer").value.trim();
     if(!customer){ msg.style.display=""; msg.className="msg error"; msg.textContent="Select a customer to associate the workload with."; return; }
     if(!wlCart.length){ msg.style.display=""; msg.className="msg error"; msg.textContent="Add at least one model to the workload."; return; }
-    const items = wlCart.map(it=> it.mode==="capacity"?{model_key:it.model_key,mode:"capacity",capacity_tib:it.capacity_tib}:{model_key:it.model_key,mode:"count",count:it.count});
+    const items = wlItemsPayload();
     const payload={customer, scenario:$b("wl-scenario").value.trim()||"default", workload_name:$b("wl-name").value.trim(), items};
     const btn=$b("wl-save"); const prev=btn.textContent; btn.disabled=true; btn.textContent="⏳ Building & parsing…";
     msg.style.display=""; msg.className="msg info"; msg.textContent="Generating the inventory and parsing (fetching live Azure pricing)…";
@@ -2492,8 +2544,8 @@ Cap ${Number(m.capacity_gib).toLocaleString()} GiB (${m.capacity_tib} TiB)</div>
       const r=await fetch("/api/workload/save",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(payload)});
       const d=await r.json(); if(!r.ok) throw new Error(d.error||"Save failed");
       msg.className="msg success"; msg.textContent="Saved “"+d.workload_name+"” for "+d.customer+". Parsed and available in Results.";
-      const rows=(d.resolved||[]).map(x=>"<tr><td>"+wlEsc(x.model)+"</td><td>"+x.count.toLocaleString()+"</td><td>"+x.actual_capacity_gib.toLocaleString()+" GiB ("+x.actual_capacity_tib+" TiB)</td></tr>").join("");
-      out.innerHTML='<div class="wl-tablewrap"><table class="wl-table"><thead><tr><th>Model</th><th>Instances</th><th>Actual capacity</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+      const rows=(d.resolved||[]).map(x=>"<tr><td>"+wlEsc(x.model)+"</td><td style='font-family:var(--font-mono);font-size:.8rem;'>"+wlEsc(x.region||"")+" · z"+wlEsc(x.zone!=null?x.zone:"")+" · "+wlEsc(x.vnet||"")+"</td><td>"+x.count.toLocaleString()+"</td><td>"+x.actual_capacity_gib.toLocaleString()+" GiB ("+x.actual_capacity_tib+" TiB)</td></tr>").join("");
+      out.innerHTML='<div class="wl-tablewrap"><table class="wl-table"><thead><tr><th>Model</th><th>Placement</th><th>Instances</th><th>Actual capacity</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
         +'<p style="font-size:.85rem;margin-top:8px;"><strong>'+d.total_vms.toLocaleString()+'</strong> VMs · <strong>'+d.total_disks.toLocaleString()+'</strong> disks · <strong>'+d.total_capacity_gib.toLocaleString()+' GiB</strong>. <a href="#" id="wl-goto-results">Go to Results →</a></p>';
       const g=$b("wl-goto-results"); if(g) g.onclick=(e)=>{e.preventDefault(); switchTab("results");};
       await wlLoadSaved();

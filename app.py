@@ -3913,26 +3913,29 @@ def workload_save():
         if count < 1:
             continue
         resolved.append({"key": mkey, "model": model, "count": count,
-                         "capacity_per_gib": cap, "actual_capacity_gib": round(count * cap, 1)})
+                         "capacity_per_gib": cap, "actual_capacity_gib": round(count * cap, 1),
+                         "region": str(it.get("region", "")).strip() or region,
+                         "zone": str(it.get("zone", "0")).strip() or "0",
+                         "vnet": str(it.get("vnet", "")).strip() or "vnet1"})
     if not resolved:
         return jsonify({"error": "The workload is empty (every item rounded down to 0 instances)."}), 400
 
     # Build the CSV rows.
     rows = []
-    for r in resolved:
+    for idx, r in enumerate(resolved):
         mkey, model, count = r["key"], r["model"], r["count"]
         os_type = "Windows" if str(mkey).lower().startswith("sql") else "Linux"
         min_sku = model.get("suggested_minimum_ec_sku", "none") or "none"
-        # Use the full model key as the VM-name prefix so instance names never
-        # collide across models (truncation caused e.g. common_server_medium and
-        # common_server_small to share a prefix and merge in the analysis).
+        # Full model key + the cart-item index keep instance names unique even when
+        # the same model is added more than once (e.g. to different zones/vnets);
+        # grouping in the analysis is by region/zone/subscription/vnet columns.
         prefix = re.sub(r"[^A-Za-z0-9]+", "_", mkey).strip("_") or "vm"
         for i in range(count):
-            vm_name = f"{prefix}-{i:04d}"
+            vm_name = f"{prefix}-{idx:02d}-{i:04d}"
             for d in model.get("drive_config", []):
                 prov = _is_provisioned(d.get("drive_type"))
                 rows.append([
-                    vm_name, mkey, region, "1", customer, "workload-vnet",
+                    vm_name, mkey, r["region"], r["zone"], customer, r["vnet"],
                     d.get("drive_type", ""), d.get("capacityGB", ""),
                     (d.get("iops", "") if prov else ""), (d.get("mbps", "") if prov else ""),
                     "Attached", os_type, ("True" if d.get("root") else "False"), min_sku,
@@ -4000,6 +4003,7 @@ def workload_save():
         "ok": True, "customer": customer, "scenario": scenario, "workload_name": wl_name,
         "total_vms": total_vms, "total_disks": len(rows), "total_capacity_gib": total_cap,
         "resolved": [{"model": r["key"], "count": r["count"],
+                      "region": r["region"], "zone": r["zone"], "vnet": r["vnet"],
                       "actual_capacity_gib": r["actual_capacity_gib"],
                       "actual_capacity_tib": round(r["actual_capacity_gib"] / 1024.0, 2)} for r in resolved],
         "analysis": _analysis_summary(results),
@@ -4031,15 +4035,18 @@ def _sanitize_wl_items(items):
         mk = str(it.get("model_key", "")).strip()
         if not mk:
             continue
+        place = {"region": str(it.get("region", "")).strip() or "eastus",
+                 "zone": str(it.get("zone", "0")).strip() or "0",
+                 "vnet": str(it.get("vnet", "")).strip() or "vnet1"}
         mode = str(it.get("mode", "count")).lower()
         if mode == "capacity":
             try:
-                out.append({"model_key": mk, "mode": "capacity", "capacity_tib": float(it.get("capacity_tib"))})
+                out.append({"model_key": mk, "mode": "capacity", "capacity_tib": float(it.get("capacity_tib")), **place})
             except (TypeError, ValueError):
                 continue
         else:
             try:
-                out.append({"model_key": mk, "mode": "count", "count": int(it.get("count"))})
+                out.append({"model_key": mk, "mode": "count", "count": int(it.get("count")), **place})
             except (TypeError, ValueError):
                 continue
     return out
