@@ -3677,6 +3677,398 @@ def mapping_templates_delete(tpl_id):
         return jsonify({"error": str(exc)}), 500
     return jsonify({"ok": True, "templates": templates})
 
+# ══════════════════════════════════════════════════════════
+#  Workload Builder — model library + synthetic-workload build/parse
+# ══════════════════════════════════════════════════════════
+# Built-in models ship in the image (tools/workload_models.json); user-created
+# models persist to a separate config in storage so they survive restarts.
+WORKLOAD_MODELS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools", "workload_models.json")
+USER_MODELS_KEY = "TCO-GUI/_config/user_models.json"
+
+# East US retail prices for INFORMATIONAL model-card estimates only (pulled
+# 2026-07-20). The authoritative TCO still comes from Run Analysis (live pricing).
+_PREMIUM_V1_TIERS = [(4, 5.28), (8, 5.28), (16, 5.28), (32, 5.28), (64, 10.207),
+                     (128, 19.71), (256, 38.01), (512, 73.22), (1024, 135.17),
+                     (2048, 259.05), (4096, 495.57), (8192, 979.0), (16384, 1937.0), (32767, 3844.0)]
+_PV2_CAP, _PV2_IOPS, _PV2_MBPS = 0.0803, 0.00511, 0.04015
+_PV2_FREE_IOPS, _PV2_FREE_MBPS = 3000, 125
+_VM_MONTHLY = {"Standard_E8bds_v5": 487.64, "Standard_E16bds_v5": 975.28,
+               "Standard_E32bds_v5": 1950.56, "Standard_E48bds_v5": 2925.84,
+               "Standard_D4ds_v5": 164.98, "Standard_D8ds_v5": 329.96, "Standard_D16ds_v5": 659.92}
+
+def _disk_monthly(dtype, cap, iops, mbps):
+    t = (dtype or "").lower()
+    cap = float(cap or 0)
+    if "premiumv2" in t:
+        return (cap * _PV2_CAP + max(0, (iops or 0) - _PV2_FREE_IOPS) * _PV2_IOPS
+                + max(0, (mbps or 0) - _PV2_FREE_MBPS) * _PV2_MBPS)
+    if "ultra" in t:
+        return cap * 0.12 + (iops or 0) * 0.00042 + (mbps or 0) * 0.0033
+    if "standardssd" in t:
+        return cap * 0.075
+    if "premium" in t:
+        for mx, price in _PREMIUM_V1_TIERS:
+            if cap <= mx:
+                return price
+        return _PREMIUM_V1_TIERS[-1][1]
+    if "standard" in t:
+        return cap * 0.04
+    return 0.0
+
+def _is_provisioned(dtype):
+    t = (dtype or "").lower()
+    return ("premiumv2" in t) or ("ultra" in t)
+
+def _model_capacity_gib(model):
+    return sum(float(d.get("capacityGB", 0)) for d in model.get("drive_config", []))
+
+def _model_est_monthly(model):
+    storage = sum(_disk_monthly(d.get("drive_type"), d.get("capacityGB"), d.get("iops"), d.get("mbps"))
+                  for d in model.get("drive_config", []))
+    vm = (model.get("suggested_compute", {}) or {}).get("vm_size", "")
+    compute = _VM_MONTHLY.get(vm, 0.0)
+    return {"storage": round(storage, 2), "compute": round(compute, 2), "total": round(storage + compute, 2)}
+
+def _model_view(key, model, source):
+    cap = _model_capacity_gib(model)
+    return {
+        "key": key, "source": source, "label": model.get("label", key),
+        "family": model.get("family", "sql" if key.startswith("sql") else "common_server"),
+        "vm_size": (model.get("suggested_compute", {}) or {}).get("vm_size", ""),
+        "vm_note": (model.get("suggested_compute", {}) or {}).get("note", ""),
+        "performance": model.get("totals", {}),
+        "capacity_gib": round(cap, 1), "capacity_tib": round(cap / 1024.0, 3),
+        "est_monthly": _model_est_monthly(model),
+        "min_ec_sku": model.get("suggested_minimum_ec_sku", ""),
+        "drive_config": model.get("drive_config", []),
+    }
+
+def _load_builtin_models():
+    try:
+        with open(WORKLOAD_MODELS_FILE, encoding="utf-8") as f:
+            return json.load(f).get("models", {})
+    except Exception as exc:
+        print(f"Could not load built-in models: {exc}")
+        return {}
+
+def _load_user_models():
+    try:
+        obj = _s3_client().get_object(Bucket=s3_bucket, Key=USER_MODELS_KEY)
+        data = json.loads(obj["Body"].read().decode("utf-8"))
+        return data if isinstance(data, dict) else {}
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] in ("NoSuchKey", "404"):
+            return {}
+        raise
+    except Exception:
+        return {}
+
+def _save_user_models(models):
+    _s3_client().put_object(Bucket=s3_bucket, Key=USER_MODELS_KEY,
+                            Body=json.dumps(models, indent=2).encode("utf-8"),
+                            ContentType="application/json")
+
+@app.route("/api/models", methods=["GET"])
+@login_required
+def models_get():
+    builtin = _load_builtin_models()
+    user = _load_user_models()
+    out = [_model_view(k, v, "builtin") for k, v in builtin.items()]
+    out += [_model_view(k, v, "user") for k, v in user.items()]
+    return jsonify({"ok": True, "models": out})
+
+@app.route("/api/models/user", methods=["POST"])
+@login_required
+def models_user_post():
+    """Save a user-created model to the separate user_models config. Only a name
+    and a storage layout (drive_config) are required; VM/performance are optional."""
+    body = request.get_json(force=True) or {}
+    name = str(body.get("name", "")).strip()
+    if not name:
+        return jsonify({"error": "A model name is required."}), 400
+    key = re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_").lower() or "model"
+    drives = body.get("drive_config") or []
+    if not isinstance(drives, list) or not drives:
+        return jsonify({"error": "At least one drive is required."}), 400
+    clean = []
+    for i, d in enumerate(drives):
+        dt = str(d.get("drive_type", "")).strip()
+        if not dt:
+            return jsonify({"error": f"Drive {i + 1}: a disk type is required."}), 400
+        try:
+            cap = float(d.get("capacityGB"))
+        except (TypeError, ValueError):
+            return jsonify({"error": f"Drive {i + 1}: a capacity (GiB) is required."}), 400
+        cd = {"drive_type": dt, "root": bool(d.get("root", False)), "capacityGB": cap}
+        if d.get("role"):
+            cd["role"] = str(d.get("role"))
+        if _is_provisioned(dt):
+            if d.get("iops") not in (None, ""):
+                cd["iops"] = int(float(d["iops"]))
+            if d.get("mbps") not in (None, ""):
+                cd["mbps"] = int(float(d["mbps"]))
+        clean.append(cd)
+    model = {"label": str(body.get("label", name)).strip() or name,
+             "family": "user", "user_created": True, "drive_config": clean}
+    if isinstance(body.get("performance"), dict):
+        model["totals"] = body["performance"]
+    if str(body.get("vm_size", "")).strip():
+        model["suggested_compute"] = {"vm_size": str(body["vm_size"]).strip()}
+    if str(body.get("min_ec_sku", "")).strip():
+        model["suggested_minimum_ec_sku"] = str(body["min_ec_sku"]).strip()
+    users = _load_user_models()
+    users[key] = model
+    try:
+        _save_user_models(users)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({"ok": True, "key": key, "model": _model_view(key, model, "user")})
+
+@app.route("/api/models/user/<key>", methods=["DELETE"])
+@login_required
+def models_user_delete(key):
+    users = _load_user_models()
+    if key not in users:
+        return jsonify({"error": "User model not found."}), 404
+    del users[key]
+    try:
+        _save_user_models(users)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({"ok": True})
+
+# Column order the synthetic inventory is emitted in (matches tools/generate_inventory.py)
+# and the fixed field-index mapping main2 consumes for it.
+_WL_COLUMNS = ["vm_name", "description", "region", "zone", "subscription", "vnet",
+               "diskType", "capacity", "iops", "mbps", "status", "osType", "root", "minimum_ec_sku"]
+_WL_FIELD_INDEX = {"count_compute": 0, "region": 2, "zone": 3, "subscription_or_account_id": 4,
+                   "vnet_or_vpc": 5, "disk_type": 6, "disk_size": 7, "iops": 8, "mbps": 9,
+                   "disk_status": 10, "host_type": 11, "root_flag": 12, "disk_usage": -99}
+
+@app.route("/api/workload/save", methods=["POST"])
+@login_required
+def workload_save():
+    """Build a synthetic inventory CSV from selected models, persist it under the
+    chosen customer, then parse it (main2) so it is immediately available for
+    Run Analysis — mirroring the upload -> map -> parse flow with a generated file."""
+    import csv as _csv
+    body = request.get_json(force=True) or {}
+    customer = str(body.get("customer", "")).strip()
+    if not customer:
+        return jsonify({"error": "Associate the workload with a customer first."}), 400
+    if not re.match(r'^[\w\-. ]+$', customer):
+        return jsonify({"error": "Customer name may only contain letters, numbers, spaces, hyphens, underscores, periods."}), 400
+    scenario = str(body.get("scenario", "")).strip() or "default"
+    wl_name = str(body.get("workload_name", "")).strip() or f"workload-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    items = body.get("items") or []
+    if not isinstance(items, list) or not items:
+        return jsonify({"error": "Add at least one model to the workload."}), 400
+    region = str(body.get("region", "")).strip() or "eastus"
+
+    models = dict(_load_builtin_models())
+    models.update(_load_user_models())   # user models can override by key
+
+    # Resolve each item to a concrete instance count.
+    resolved = []
+    for it in items:
+        mkey = str(it.get("model_key", "")).strip()
+        model = models.get(mkey)
+        if not model:
+            return jsonify({"error": f"Unknown model '{mkey}'."}), 400
+        cap = _model_capacity_gib(model)
+        mode = str(it.get("mode", "count")).lower()
+        if mode == "capacity":
+            try:
+                tib = float(it.get("capacity_tib"))
+            except (TypeError, ValueError):
+                return jsonify({"error": f"'{mkey}': a target capacity (TiB) is required."}), 400
+            count = int((tib * 1024.0) // cap) if cap > 0 else 0   # round DOWN
+        else:
+            try:
+                count = int(it.get("count"))
+            except (TypeError, ValueError):
+                return jsonify({"error": f"'{mkey}': a count is required."}), 400
+        if count < 1:
+            continue
+        resolved.append({"key": mkey, "model": model, "count": count,
+                         "capacity_per_gib": cap, "actual_capacity_gib": round(count * cap, 1)})
+    if not resolved:
+        return jsonify({"error": "The workload is empty (every item rounded down to 0 instances)."}), 400
+
+    # Build the CSV rows.
+    rows = []
+    for r in resolved:
+        mkey, model, count = r["key"], r["model"], r["count"]
+        os_type = "Windows" if str(mkey).lower().startswith("sql") else "Linux"
+        min_sku = model.get("suggested_minimum_ec_sku", "none") or "none"
+        prefix = re.sub(r"[^A-Za-z0-9]+", "", mkey)[:10] or "vm"
+        for i in range(count):
+            vm_name = f"{prefix}-{i:04d}"
+            for d in model.get("drive_config", []):
+                prov = _is_provisioned(d.get("drive_type"))
+                rows.append([
+                    vm_name, mkey, region, "1", customer, "workload-vnet",
+                    d.get("drive_type", ""), d.get("capacityGB", ""),
+                    (d.get("iops", "") if prov else ""), (d.get("mbps", "") if prov else ""),
+                    "Attached", os_type, ("True" if d.get("root") else "False"), min_sku,
+                ])
+    buf = StringIO()
+    w = _csv.writer(buf)
+    w.writerow(_WL_COLUMNS)
+    w.writerows(rows)
+    csv_text = buf.getvalue()
+
+    # Ensure the customer exists, and make it the active customer/scenario.
+    try:
+        customers = _load_customer_list()
+        if customer not in customers:
+            customers.append(customer)
+            _save_customer_list(customers)
+    except Exception:
+        pass
+    session["active_customer"] = customer
+    session["active_scenario"] = scenario
+
+    # Establish the dated upload/results prefixes (same scheme as presign).
+    username = session.get("username", "unknown")
+    dt = datetime.now().strftime("%Y%m%d%H%M%S")
+    session["date_time_str"] = dt
+    upload_prefix = f"TCO-GUI/{username}/{customer}/{scenario}/{dt}/data/"
+    results_prefix = f"TCO-GUI/{username}/{customer}/{scenario}/{dt}/results/"
+    session["upload_prefix"] = upload_prefix
+    session["results_prefix"] = results_prefix
+    safe_name = "".join(c for c in wl_name if c.isalnum() or c in "._- ")[:100] or "workload"
+    object_key = f"{upload_prefix}{safe_name}.csv"
+    try:
+        _s3_client().put_object(Bucket=s3_bucket, Key=object_key,
+                                Body=csv_text.encode("utf-8"), ContentType="text/csv")
+    except Exception as exc:
+        return jsonify({"error": f"Could not store the generated workload: {exc}"}), 500
+
+    # Fixed column mapping for the generated CSV, then parse (main2) so the dataset
+    # is available in Results.
+    config = dict(_WL_FIELD_INDEX)
+    config["cloud"] = "azure"
+    config["name"] = wl_name
+    config["valid_disk_status"] = ["attached", "unattached", "reserved", "activesas",
+                                   "readytoupload", "in-use", "available"]
+    config["price_all_data_flag"] = 1
+    config["fixed_zone_count"] = 1
+    config["fixed_zone_list"] = [1]
+    config["default_zone_id"] = 1
+    session["json_config"] = config
+    try:
+        results = read_file_s3(upload_prefix)
+    except Exception as exc:
+        return jsonify({"error": f"Workload stored but parsing failed: {exc}"}), 400
+
+    # Persist the workload definition (recipe) so it can be reloaded as a starting
+    # point for a new workload — stored customer-agnostically.
+    try:
+        _upsert_workload(wl_name, region, _sanitize_wl_items(items), customer)
+    except Exception as exc:
+        print(f"Warning: could not save workload definition: {exc}")
+
+    total_vms = sum(r["count"] for r in resolved)
+    total_cap = round(sum(r["actual_capacity_gib"] for r in resolved), 1)
+    return jsonify({
+        "ok": True, "customer": customer, "scenario": scenario, "workload_name": wl_name,
+        "total_vms": total_vms, "total_disks": len(rows), "total_capacity_gib": total_cap,
+        "resolved": [{"model": r["key"], "count": r["count"],
+                      "actual_capacity_gib": r["actual_capacity_gib"],
+                      "actual_capacity_tib": round(r["actual_capacity_gib"] / 1024.0, 2)} for r in resolved],
+        "analysis": _analysis_summary(results),
+    })
+
+# ── Saved workload definitions (reusable recipes, customer-agnostic) ──
+SAVED_WORKLOADS_KEY = "TCO-GUI/_config/saved_workloads.json"
+
+def _load_saved_workloads():
+    try:
+        obj = _s3_client().get_object(Bucket=s3_bucket, Key=SAVED_WORKLOADS_KEY)
+        data = json.loads(obj["Body"].read().decode("utf-8"))
+        return data if isinstance(data, dict) else {}
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] in ("NoSuchKey", "404"):
+            return {}
+        raise
+    except Exception:
+        return {}
+
+def _save_saved_workloads(d):
+    _s3_client().put_object(Bucket=s3_bucket, Key=SAVED_WORKLOADS_KEY,
+                            Body=json.dumps(d, indent=2).encode("utf-8"),
+                            ContentType="application/json")
+
+def _sanitize_wl_items(items):
+    out = []
+    for it in (items or []):
+        mk = str(it.get("model_key", "")).strip()
+        if not mk:
+            continue
+        mode = str(it.get("mode", "count")).lower()
+        if mode == "capacity":
+            try:
+                out.append({"model_key": mk, "mode": "capacity", "capacity_tib": float(it.get("capacity_tib"))})
+            except (TypeError, ValueError):
+                continue
+        else:
+            try:
+                out.append({"model_key": mk, "mode": "count", "count": int(it.get("count"))})
+            except (TypeError, ValueError):
+                continue
+    return out
+
+def _upsert_workload(name, region, items, customer=None):
+    d = _load_saved_workloads()
+    wid = re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_").lower() or "workload"
+    now = datetime.now().isoformat()
+    existing = d.get(wid, {})
+    wl = {"id": wid, "name": name, "region": region or "eastus", "items": items,
+          "created": existing.get("created", now), "updated": now,
+          "last_customer": customer or existing.get("last_customer", "")}
+    d[wid] = wl
+    _save_saved_workloads(d)
+    return wl
+
+@app.route("/api/workloads", methods=["GET"])
+@login_required
+def workloads_list():
+    d = _load_saved_workloads()
+    items = sorted(d.values(), key=lambda w: w.get("updated", ""), reverse=True)
+    return jsonify({"ok": True, "workloads": items})
+
+@app.route("/api/workloads", methods=["POST"])
+@login_required
+def workloads_save_def():
+    """Save a workload definition (recipe) without parsing — a reusable, customer-agnostic template."""
+    body = request.get_json(force=True) or {}
+    name = str(body.get("name", "")).strip()
+    if not name:
+        return jsonify({"error": "A workload name is required to save it."}), 400
+    items = _sanitize_wl_items(body.get("items"))
+    if not items:
+        return jsonify({"error": "Add at least one model before saving the workload."}), 400
+    region = str(body.get("region", "")).strip() or "eastus"
+    try:
+        wl = _upsert_workload(name, region, items, body.get("customer"))
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({"ok": True, "workload": wl})
+
+@app.route("/api/workloads/<wid>", methods=["DELETE"])
+@login_required
+def workloads_delete(wid):
+    d = _load_saved_workloads()
+    if wid not in d:
+        return jsonify({"error": "Saved workload not found."}), 404
+    del d[wid]
+    try:
+        _save_saved_workloads(d)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({"ok": True})
+
 def get_ec_size_n_cost_data(regions, customer, directory, ec):
 
     file_name_ec_cost = "ec_infra_resource_costs.csv"

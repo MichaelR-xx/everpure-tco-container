@@ -451,6 +451,29 @@ body::before {
   .tab-btn { padding: 0 12px; font-size: .75rem; }
 }
 
+/* ══ WORKLOAD BUILDER ═════════════════════════════════════ */
+.wl-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px; }
+.wl-card { background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:14px; display:flex; flex-direction:column; gap:8px; }
+.wl-card h4 { margin:0; font-size:.95rem; color:var(--text); }
+.wl-card .wl-badge { font-size:.6rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; padding:2px 7px; border-radius:999px; }
+.wl-badge.builtin { background:color-mix(in srgb,var(--accent2) 18%,transparent); color:var(--accent2); }
+.wl-badge.user { background:color-mix(in srgb,var(--accent) 16%,transparent); color:var(--accent); }
+.wl-card .wl-spec { font-size:.74rem; color:var(--muted); font-family:var(--font-mono); line-height:1.5; }
+.wl-card .wl-cost { font-size:1.05rem; font-weight:700; color:var(--accent); font-family:var(--font-mono); }
+.wl-card .wl-cost small { font-weight:400; color:var(--muted); font-size:.68rem; }
+.wl-add { display:flex; gap:6px; align-items:center; margin-top:auto; flex-wrap:wrap; }
+.wl-add select, .wl-add input { background:var(--bg); border:1px solid var(--border); border-radius:7px; color:var(--text); font-size:.78rem; padding:6px 8px; }
+.wl-add input { width:88px; }
+.wl-card .wl-actions { display:flex; gap:6px; }
+.wl-form-row { display:flex; gap:14px; flex-wrap:wrap; }
+.wl-form-row label { display:flex; flex-direction:column; gap:4px; font-size:.75rem; color:var(--muted); font-weight:600; }
+.wl-form-row input, .wl-form-row select { background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:.85rem; padding:9px 10px; min-width:200px; }
+.wl-tablewrap { overflow-x:auto; }
+.wl-table { width:100%; border-collapse:collapse; font-size:.82rem; }
+.wl-table th { text-align:left; padding:7px 10px; border-bottom:1px solid var(--border); color:var(--muted); font-size:.66rem; text-transform:uppercase; letter-spacing:.05em; white-space:nowrap; }
+.wl-table td { padding:7px 10px; border-bottom:1px solid var(--border); }
+.wl-table input, .wl-table select { background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:.8rem; padding:5px 7px; width:100%; }
+
 /* ══ BRAND THEMES ═══════════════════════════════════════ */
 
 /* Wipro — corporate light: deep aubergine primary with the rainbow-dot mark */
@@ -511,6 +534,10 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
     <button class="tab-btn" data-tab="s3upload" id="tab-s3upload" disabled>
       <span class="tab-icon">☁️</span> S3 Upload
       <span class="tab-lock" id="lock-s3upload">🔒</span>
+    </button>
+    <button class="tab-btn" data-tab="builder" id="tab-builder" disabled>
+      <span class="tab-icon">🧱</span> Workload Builder
+      <span class="tab-lock" id="lock-builder">🔒</span>
     </button>
     <button class="tab-btn" data-tab="results" id="tab-results" disabled>
       <span class="tab-icon">📈</span> Results
@@ -816,6 +843,81 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
         </div>
 
         <div class="msg-area" id="s3-messages"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TAB: WORKLOAD BUILDER ────────────────────────── -->
+  <div class="tab-pane" id="pane-builder">
+    <div class="inner-page">
+      <div class="page-heading">
+        <h2>🧱 Workload Builder</h2>
+        <p>Assemble a synthetic workload from reusable models — by instance count or by target capacity — then save it against a customer. Saving parses the dataset and makes it available for Run Analysis.</p>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0;">Start from a saved workload <span class="muted" style="font-weight:400;font-size:.8rem;">— optional; reusable across customers</span></h3>
+        <div class="wl-form-row" style="align-items:flex-end;">
+          <label style="flex:1;min-width:260px;">Saved workloads<select id="wl-saved"></select></label>
+          <button class="btn-sm" id="wl-load">Load into builder</button>
+          <button class="btn-sm danger" id="wl-del-saved">Delete</button>
+        </div>
+        <div id="wl-load-msg" class="muted" style="font-size:.78rem;margin-top:8px;"></div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0;">Model library <span class="muted" style="font-weight:400;font-size:.8rem;">— VM type, performance &amp; est. monthly cost are informational</span></h3>
+        <div id="wl-models" class="wl-grid"></div>
+        <div style="margin-top:14px;"><button class="btn-sm" id="wl-new-model">＋ Create a new model</button></div>
+      </div>
+
+      <!-- Model editor (create / save-as-new) -->
+      <div class="card" id="wl-editor" style="display:none;">
+        <h3 style="margin-top:0;" id="wl-editor-title">Create a new model</h3>
+        <p class="muted" style="font-size:.82rem;">Only a name and the storage layout are required. VM type, performance and EC SKU are optional.</p>
+        <div class="wl-form-row">
+          <label>Model name <span style="color:var(--danger);">*</span><input id="wl-m-name" placeholder="e.g. reporting_server"></label>
+          <label>VM type (optional)<input id="wl-m-vm" placeholder="e.g. Standard_E8bds_v5"></label>
+          <label>Min EC SKU (optional)<input id="wl-m-sku" placeholder="e.g. V10MP2R2"></label>
+        </div>
+        <h4 style="margin:14px 0 6px;">Drives</h4>
+        <div class="wl-tablewrap"><table class="wl-table" id="wl-m-drives">
+          <thead><tr><th>Disk type</th><th>Size (GiB)</th><th>IOPS</th><th>MBps</th><th>OS/root</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <div style="margin-top:8px;"><button class="btn-sm" id="wl-m-add-drive">＋ Add drive</button></div>
+        <p class="muted" style="font-size:.75rem;margin-top:8px;">IOPS / MBps apply only to <code>PremiumV2_LRS</code> and <code>UltraSSD_LRS</code>; other types are tier-derived and ignore them.</p>
+        <div style="margin-top:12px;display:flex;gap:8px;">
+          <button class="btn-sm save" id="wl-m-save">Save model</button>
+          <button class="btn-sm" id="wl-m-cancel">Cancel</button>
+        </div>
+        <div id="wl-m-msg" class="msg" style="display:none;margin-top:10px;"></div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0;">Your workload</h3>
+        <div id="wl-cart-empty" class="muted" style="font-size:.85rem;">No models added yet — use “Add” on a model above.</div>
+        <div class="wl-tablewrap" id="wl-cart-wrap" style="display:none;"><table class="wl-table" id="wl-cart">
+          <thead><tr><th>Model</th><th>Selection</th><th>Instances</th><th>Actual capacity</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <div id="wl-cart-totals" style="margin-top:10px;font-size:.85rem;"></div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0;">Save workload</h3>
+        <div class="wl-form-row">
+          <label>Customer <span style="color:var(--danger);">*</span><select id="wl-customer"></select></label>
+          <label>Scenario<input id="wl-scenario" value="default"></label>
+          <label>Workload name (optional)<input id="wl-name" placeholder="auto-named if blank"></label>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-sm save" id="wl-save">💾 Save &amp; parse workload</button>
+          <button class="btn-sm" id="wl-save-def">Save definition only (reusable)</button>
+        </div>
+        <p class="muted" style="font-size:.75rem;margin-top:8px;">“Save &amp; parse” stores the recipe <em>and</em> builds + parses the dataset for the selected customer (needs a customer + a workload name). “Save definition only” just stores the reusable recipe (needs a name; no customer required).</p>
+        <div id="wl-save-msg" class="msg" style="display:none;margin-top:12px;"></div>
+        <div id="wl-save-result" style="margin-top:12px;"></div>
       </div>
     </div>
   </div>
@@ -2084,7 +2186,7 @@ window.addEventListener("mousemove", moveTip);
 /* ════════════════════════════════════════════════════════
    TAB NAVIGATION
 ════════════════════════════════════════════════════════ */
-const tabs = ["login","customers","s3upload","results","tco","logout"];
+const tabs = ["login","customers","s3upload","builder","results","tco","logout"];
 
 function switchTab(name) {
   tabs.forEach(t => {
@@ -2093,6 +2195,7 @@ function switchTab(name) {
   });
   if (name === "customers") loadCustomers();
   if (name === "s3upload")  refreshS3ActiveCustomer();
+  if (name === "builder")   initBuilderTab();
   if (name === "results")   initResultsTab();
   if (name === "tco")       initTcoTab();
   if (name === "logout")    refreshLogoutPane();
@@ -2105,6 +2208,244 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
 });
 
 /* ════════════════════════════════════════════════════════
+   WORKLOAD BUILDER
+════════════════════════════════════════════════════════ */
+(function(){
+  const $b = id => document.getElementById(id);
+  const wlEsc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const usd = v => "$"+Number(v||0).toLocaleString(undefined,{maximumFractionDigits:0});
+  let wlModels = [], wlCart = [], wlModelsByKey = {};
+
+  let wlSaved = [], wlSavedById = {};
+
+  window.initBuilderTab = async function(){
+    await wlLoadModels();
+    await wlLoadCustomers();
+    await wlLoadSaved();
+    wlRenderCart();
+  };
+
+  async function wlLoadSaved(){
+    const sel = $b("wl-saved");
+    try{
+      const r = await fetch("/api/workloads",{credentials:"same-origin"});
+      const d = await r.json();
+      wlSaved = d.workloads||[]; wlSavedById = {}; wlSaved.forEach(w=>wlSavedById[w.id]=w);
+      if(!wlSaved.length){ sel.innerHTML='<option value="">— no saved workloads yet —</option>'; }
+      else { sel.innerHTML = wlSaved.map(w=>{
+        const n=(w.items||[]).length; const cust=w.last_customer?(" · last: "+wlEsc(w.last_customer)):"";
+        return `<option value="${wlEsc(w.id)}">${wlEsc(w.name)} (${n} model${n===1?"":"s"})${cust}</option>`;
+      }).join(""); }
+    }catch(e){ sel.innerHTML='<option value="">— could not load —</option>'; }
+  }
+
+  $b("wl-load").onclick=()=>{
+    const id=$b("wl-saved").value; const w=wlSavedById[id];
+    const note=$b("wl-load-msg");
+    if(!w){ note.textContent="Pick a saved workload first."; return; }
+    const known=[], missing=[];
+    (w.items||[]).forEach(it=>{ if(wlModelsByKey[it.model_key]) known.push(it); else missing.push(it.model_key); });
+    wlCart = known.map(it=> it.mode==="capacity"
+      ? {model_key:it.model_key,mode:"capacity",capacity_tib:it.capacity_tib}
+      : {model_key:it.model_key,mode:"count",count:it.count});
+    $b("wl-name").value = w.name || "";
+    wlRenderCart();
+    note.textContent = "Loaded “"+w.name+"” ("+known.length+" model(s)) as a starting point — pick a customer and save."
+      + (missing.length?(" Skipped missing model(s): "+missing.join(", ")+"."):"");
+  };
+
+  $b("wl-del-saved").onclick=async()=>{
+    const id=$b("wl-saved").value; const w=wlSavedById[id];
+    if(!w){ return; }
+    if(!confirm("Delete saved workload “"+w.name+"”? (This only removes the reusable recipe.)")) return;
+    try{ const r=await fetch("/api/workloads/"+encodeURIComponent(id),{method:"DELETE",credentials:"same-origin"}); const d=await r.json(); if(!r.ok) throw new Error(d.error||"Delete failed"); await wlLoadSaved(); $b("wl-load-msg").textContent="Deleted “"+w.name+"”."; }
+    catch(e){ $b("wl-load-msg").textContent=e.message; }
+  };
+
+  $b("wl-save-def").onclick=async()=>{
+    const msg=$b("wl-save-msg"); $b("wl-save-result").innerHTML="";
+    const name=$b("wl-name").value.trim();
+    if(!name){ msg.style.display=""; msg.className="msg error"; msg.textContent="Enter a workload name to save the definition."; return; }
+    if(!wlCart.length){ msg.style.display=""; msg.className="msg error"; msg.textContent="Add at least one model to the workload."; return; }
+    const items = wlCart.map(it=> it.mode==="capacity"?{model_key:it.model_key,mode:"capacity",capacity_tib:it.capacity_tib}:{model_key:it.model_key,mode:"count",count:it.count});
+    const payload={name, items, customer:$b("wl-customer").value.trim()};
+    try{
+      const r=await fetch("/api/workloads",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(payload)});
+      const d=await r.json(); if(!r.ok) throw new Error(d.error||"Save failed");
+      msg.style.display=""; msg.className="msg success"; msg.textContent="Saved reusable workload “"+name+"”. Load it anytime from the top of this page — for any customer.";
+      await wlLoadSaved(); const sel=$b("wl-saved"); if(sel) sel.value=d.workload.id;
+    }catch(e){ msg.style.display=""; msg.className="msg error"; msg.textContent=e.message; }
+  };
+
+  async function wlLoadModels(){
+    const grid = $b("wl-models");
+    grid.innerHTML = '<div class="muted" style="font-size:.85rem;">Loading models…</div>';
+    try {
+      const r = await fetch("/api/models",{credentials:"same-origin"});
+      const d = await r.json();
+      if(!r.ok) throw new Error(d.error||"Failed to load models");
+      wlModels = d.models||[];
+      wlModelsByKey = {}; wlModels.forEach(m=>wlModelsByKey[m.key]=m);
+      wlRenderModels();
+    } catch(e){ grid.innerHTML = '<div class="msg error">'+wlEsc(e.message)+'</div>'; }
+  }
+
+  function wlRenderModels(){
+    const grid = $b("wl-models");
+    if(!wlModels.length){ grid.innerHTML='<div class="muted">No models found.</div>'; return; }
+    grid.innerHTML = wlModels.map(m=>{
+      const perf = m.performance||{};
+      const iops = perf.iops!=null?Number(perf.iops).toLocaleString():"—";
+      const mbps = perf.throughput_mbps!=null?Number(perf.throughput_mbps).toLocaleString():"—";
+      const est = m.est_monthly||{};
+      const vm = m.vm_size?wlEsc(m.vm_size):"—";
+      const del = m.source==="user"?`<button class="btn-sm danger" data-del="${wlEsc(m.key)}">Delete</button>`:"";
+      return `<div class="wl-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <h4>${wlEsc(m.label)}</h4><span class="wl-badge ${m.source}">${m.source}</span>
+        </div>
+        <div class="wl-spec">VM: ${vm}
+IOPS ${iops} · ${mbps} MBps
+Cap ${Number(m.capacity_gib).toLocaleString()} GiB (${m.capacity_tib} TiB)</div>
+        <div class="wl-cost">${usd(est.total)}/mo <small>est. (storage ${usd(est.storage)}${est.compute?" + compute "+usd(est.compute):""})</small></div>
+        <div class="wl-add">
+          <select data-mode="${wlEsc(m.key)}"><option value="count">By count</option><option value="capacity">By capacity (TiB)</option></select>
+          <input type="number" min="1" step="1" value="1" data-val="${wlEsc(m.key)}">
+          <button class="btn-sm save" data-add="${wlEsc(m.key)}">Add</button>
+        </div>
+        <div class="wl-actions"><button class="btn-sm" data-edit="${wlEsc(m.key)}">Edit → save as new</button>${del}</div>
+      </div>`;
+    }).join("");
+    grid.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>wlAdd(b.dataset.add));
+    grid.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>wlOpenEditor(b.dataset.edit));
+    grid.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>wlDeleteModel(b.dataset.del));
+  }
+
+  function wlAdd(key){
+    const mode = document.querySelector('[data-mode="'+CSS.escape(key)+'"]').value;
+    const val = parseFloat(document.querySelector('[data-val="'+CSS.escape(key)+'"]').value);
+    if(!(val>0)) return;
+    wlCart.push(mode==="capacity"?{model_key:key,mode:"capacity",capacity_tib:val}:{model_key:key,mode:"count",count:Math.floor(val)});
+    wlRenderCart();
+  }
+
+  function wlResolve(item){
+    const m = wlModelsByKey[item.model_key]; if(!m) return {count:0,cap:0};
+    const capPer = m.capacity_gib;
+    if(item.mode==="capacity"){ const count=Math.floor((item.capacity_tib*1024)/capPer); return {count,cap:count*capPer}; }
+    return {count:item.count, cap:item.count*capPer};
+  }
+
+  function wlRenderCart(){
+    const tb = $b("wl-cart").querySelector("tbody");
+    const wrap=$b("wl-cart-wrap"), empty=$b("wl-cart-empty");
+    if(!wlCart.length){ wrap.style.display="none"; empty.style.display=""; $b("wl-cart-totals").innerHTML=""; return; }
+    wrap.style.display=""; empty.style.display="none";
+    let totVMs=0, totCap=0;
+    tb.innerHTML = wlCart.map((it,i)=>{
+      const m=wlModelsByKey[it.model_key]; const res=wlResolve(it);
+      totVMs+=res.count; totCap+=res.cap;
+      const sel = it.mode==="capacity"?(it.capacity_tib+" TiB target"):(it.count+" × count");
+      const capNote = it.mode==="capacity"?(res.cap.toLocaleString()+" GiB ("+(res.cap/1024).toFixed(2)+" TiB) — rounded down"):(res.cap.toLocaleString()+" GiB");
+      return `<tr><td>${wlEsc(m?m.label:it.model_key)}</td><td>${wlEsc(sel)}</td><td>${res.count.toLocaleString()}</td><td>${wlEsc(capNote)}</td><td><button class="btn-sm danger" data-rm="${i}">Remove</button></td></tr>`;
+    }).join("");
+    tb.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{ wlCart.splice(+b.dataset.rm,1); wlRenderCart(); });
+    $b("wl-cart-totals").innerHTML = "<strong>"+totVMs.toLocaleString()+"</strong> VM(s) · <strong>"+totCap.toLocaleString()+" GiB</strong> ("+(totCap/1024).toFixed(2)+" TiB) total, incl. OS drives.";
+  }
+
+  function wlDriveRow(d){
+    d=d||{};
+    const tr=document.createElement("tr");
+    tr.innerHTML = `<td><select class="wl-d-type">
+        <option value="Premium_LRS">Premium_LRS (v1)</option>
+        <option value="PremiumV2_LRS">PremiumV2_LRS (v2)</option>
+        <option value="UltraSSD_LRS">UltraSSD_LRS</option>
+        <option value="StandardSSD_LRS">StandardSSD_LRS</option>
+        <option value="Standard_LRS">Standard_LRS</option></select></td>
+      <td><input class="wl-d-cap" type="number" min="1" value="${d.capacityGB||''}"></td>
+      <td><input class="wl-d-iops" type="number" min="0" value="${d.iops||''}"></td>
+      <td><input class="wl-d-mbps" type="number" min="0" value="${d.mbps||''}"></td>
+      <td style="text-align:center;"><input class="wl-d-root" type="checkbox" ${d.root?"checked":""}></td>
+      <td><button class="btn-sm danger wl-d-rm">✕</button></td>`;
+    if(d.drive_type) tr.querySelector(".wl-d-type").value=d.drive_type;
+    tr.querySelector(".wl-d-rm").onclick=()=>tr.remove();
+    return tr;
+  }
+  function wlOpenEditor(key){
+    const m = key?wlModelsByKey[key]:null;
+    $b("wl-editor").style.display="";
+    $b("wl-editor-title").textContent = m?("Edit “"+m.label+"” → save as a new model"):"Create a new model";
+    $b("wl-m-name").value = m?(m.label+" copy"):"";
+    $b("wl-m-vm").value = m?m.vm_size:"";
+    $b("wl-m-sku").value = m?m.min_ec_sku:"";
+    const tb=$b("wl-m-drives").querySelector("tbody"); tb.innerHTML="";
+    const drives = m?m.drive_config:[{drive_type:"Premium_LRS",root:true,capacityGB:200}];
+    drives.forEach(d=>tb.appendChild(wlDriveRow(d)));
+    $b("wl-m-msg").style.display="none";
+    $b("wl-editor").scrollIntoView({behavior:"smooth",block:"nearest"});
+  }
+  $b("wl-new-model").onclick=()=>wlOpenEditor(null);
+  $b("wl-m-cancel").onclick=()=>{ $b("wl-editor").style.display="none"; };
+  $b("wl-m-add-drive").onclick=()=>$b("wl-m-drives").querySelector("tbody").appendChild(wlDriveRow({drive_type:"PremiumV2_LRS"}));
+  $b("wl-m-save").onclick=async()=>{
+    const name=$b("wl-m-name").value.trim(); const msg=$b("wl-m-msg");
+    if(!name){ msg.style.display=""; msg.className="msg error"; msg.textContent="A model name is required."; return; }
+    const drives=[...$b("wl-m-drives").querySelector("tbody").querySelectorAll("tr")].map(tr=>{
+      const o={drive_type:tr.querySelector(".wl-d-type").value, capacityGB:parseFloat(tr.querySelector(".wl-d-cap").value), root:tr.querySelector(".wl-d-root").checked};
+      const io=tr.querySelector(".wl-d-iops").value, mb=tr.querySelector(".wl-d-mbps").value;
+      if(io!=="") o.iops=parseInt(io,10); if(mb!=="") o.mbps=parseInt(mb,10);
+      return o;
+    });
+    const payload={name, drive_config:drives, vm_size:$b("wl-m-vm").value.trim(), min_ec_sku:$b("wl-m-sku").value.trim()};
+    try{
+      const r=await fetch("/api/models/user",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(payload)});
+      const d=await r.json(); if(!r.ok) throw new Error(d.error||"Save failed");
+      msg.style.display=""; msg.className="msg success"; msg.textContent="Saved model “"+name+"”.";
+      $b("wl-editor").style.display="none"; await wlLoadModels();
+    }catch(e){ msg.style.display=""; msg.className="msg error"; msg.textContent=e.message; }
+  };
+  async function wlDeleteModel(key){
+    if(!confirm("Delete user model “"+key+"”?")) return;
+    try{ const r=await fetch("/api/models/user/"+encodeURIComponent(key),{method:"DELETE",credentials:"same-origin"}); const d=await r.json(); if(!r.ok) throw new Error(d.error||"Delete failed"); await wlLoadModels(); }
+    catch(e){ alert(e.message); }
+  }
+
+  async function wlLoadCustomers(){
+    const sel=$b("wl-customer");
+    try{
+      const r=await fetch("/api/customers",{credentials:"same-origin"}); const d=await r.json();
+      const list=(d.customers||[]);
+      const cur=(typeof activeCustomer!=="undefined"&&activeCustomer)?activeCustomer:"";
+      if(!list.length){ sel.innerHTML='<option value="">— add a customer on the Customers tab —</option>'; return; }
+      sel.innerHTML = list.map(c=>`<option value="${wlEsc(c)}"${c===cur?" selected":""}>${wlEsc(c)}</option>`).join("");
+    }catch(e){ sel.innerHTML='<option value="">— could not load —</option>'; }
+  }
+
+  $b("wl-save").onclick=async()=>{
+    const msg=$b("wl-save-msg"), out=$b("wl-save-result"); out.innerHTML="";
+    const customer=$b("wl-customer").value.trim();
+    if(!customer){ msg.style.display=""; msg.className="msg error"; msg.textContent="Select a customer to associate the workload with."; return; }
+    if(!wlCart.length){ msg.style.display=""; msg.className="msg error"; msg.textContent="Add at least one model to the workload."; return; }
+    const items = wlCart.map(it=> it.mode==="capacity"?{model_key:it.model_key,mode:"capacity",capacity_tib:it.capacity_tib}:{model_key:it.model_key,mode:"count",count:it.count});
+    const payload={customer, scenario:$b("wl-scenario").value.trim()||"default", workload_name:$b("wl-name").value.trim(), items};
+    const btn=$b("wl-save"); const prev=btn.textContent; btn.disabled=true; btn.textContent="⏳ Building & parsing…";
+    msg.style.display=""; msg.className="msg info"; msg.textContent="Generating the inventory and parsing (fetching live Azure pricing)…";
+    try{
+      const r=await fetch("/api/workload/save",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(payload)});
+      const d=await r.json(); if(!r.ok) throw new Error(d.error||"Save failed");
+      msg.className="msg success"; msg.textContent="Saved “"+d.workload_name+"” for "+d.customer+". Parsed and available in Results.";
+      const rows=(d.resolved||[]).map(x=>"<tr><td>"+wlEsc(x.model)+"</td><td>"+x.count.toLocaleString()+"</td><td>"+x.actual_capacity_gib.toLocaleString()+" GiB ("+x.actual_capacity_tib+" TiB)</td></tr>").join("");
+      out.innerHTML='<div class="wl-tablewrap"><table class="wl-table"><thead><tr><th>Model</th><th>Instances</th><th>Actual capacity</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+        +'<p style="font-size:.85rem;margin-top:8px;"><strong>'+d.total_vms.toLocaleString()+'</strong> VMs · <strong>'+d.total_disks.toLocaleString()+'</strong> disks · <strong>'+d.total_capacity_gib.toLocaleString()+' GiB</strong>. <a href="#" id="wl-goto-results">Go to Results →</a></p>';
+      const g=$b("wl-goto-results"); if(g) g.onclick=(e)=>{e.preventDefault(); switchTab("results");};
+      await wlLoadSaved();
+      wlCart=[]; wlRenderCart();
+    }catch(e){ msg.className="msg error"; msg.textContent=e.message; }
+    finally{ btn.disabled=false; btn.textContent=prev; }
+  };
+})();
+
+/* ════════════════════════════════════════════════════════
    AUTH
 ════════════════════════════════════════════════════════ */
 const loginMsg  = document.getElementById("login-msg");
@@ -2114,7 +2455,7 @@ const btnLogin  = document.getElementById("btn-login");
 const userName  = document.getElementById("user-name");
 
 function unlockTabs(name) {
-  ["customers","s3upload","results","tco","logout"].forEach(t => {
+  ["customers","s3upload","builder","results","tco","logout"].forEach(t => {
     document.getElementById(`tab-${t}`).disabled = false;
     document.getElementById(`lock-${t}`).style.display = "none";
   });
@@ -2122,7 +2463,7 @@ function unlockTabs(name) {
 }
 
 function lockTabs() {
-  ["customers","s3upload","results","tco","logout"].forEach(t => {
+  ["customers","s3upload","builder","results","tco","logout"].forEach(t => {
     document.getElementById(`tab-${t}`).disabled = true;
     document.getElementById(`lock-${t}`).style.display = "";
   });
