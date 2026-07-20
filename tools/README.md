@@ -51,3 +51,22 @@ each VM. VM names embed the role and location so archetypes that share a `vm_nam
 collide.
 
 See `sample_spec.json` for a complete example (39 VMs → 156 disk rows).
+
+## Reusable workload models
+
+`workload_models.json` is a library of ready-made VM building blocks — copy a model's
+`drive_config` into an archetype above. Six models in two families:
+
+| Model | OS disk | Data path | Notes |
+|---|---|---|---|
+| `sql_small` / `sql_medium` / `sql_large` | 200 GiB `Premium_LRS` | `PremiumV2_LRS` data + log + tempdb | log = data size at half its IOPS/MBps; tiers scale 0.5× / 1× / 2× (12k / 24k / 48k IOPS) |
+| `common_server_small` / `_medium` / `_large` | 200 GiB `Premium_LRS` | one `Premium_LRS` data disk (512 GiB / 1.5 TiB / 3 TiB) | tier-derived performance (no provisioned IOPS/MBps) |
+
+The SQL tiers are derived from the Innocap SQL-on-Azure storage build-out (`sql_medium` = baseline).
+
+### Ready-to-run example specs
+
+```bash
+python tools/generate_inventory.py tools/innocap_3tier_spec.json   # 14 VMs → 56 disks (SQL only)
+python tools/generate_inventory.py tools/mixed_estate_spec.json    # 43 VMs → 110 disks (SQL + common servers)
+```

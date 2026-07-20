@@ -1,0 +1,115 @@
+{
+  "customer": "mixed_estate",
+  "output": "C:/Users/micha/Downloads",
+  "_note": "Mixed synthetic estate from tools/workload_models.json (v1.2): SQL Server tiers (Windows, provisioned Premium SSD v2) + general-purpose common servers (Linux, tier-derived Premium SSD v1). 43 VMs / 110 disks / ~91,032 GB in eastus. Run: python tools/generate_inventory.py tools/mixed_estate_spec.json",
+  "disks": [
+    {
+      "id": 1,
+      "Description": "sql_large",
+      "vm_name_prefix": "sqllg",
+      "os_type": "Windows",
+      "region": "eastus",
+      "subscriptions": ["innocap-prod"],
+      "zones": ["1"],
+      "vnets": ["sql-vnet"],
+      "scale_by": "instance",
+      "num_instances_in_each_subscription_zone_combination": 2,
+      "minimum_ec_sku": "V20MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS",   "root": true,  "capacityGB": 200 },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 4096, "iops": 28000, "mbps": 1000, "role": "data" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 4096, "iops": 14000, "mbps": 500,  "role": "log" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 1024, "iops": 6000,  "mbps": 200,  "role": "tempdb" }
+      ]
+    },
+    {
+      "id": 2,
+      "Description": "sql_medium",
+      "vm_name_prefix": "sqlmd",
+      "os_type": "Windows",
+      "region": "eastus",
+      "subscriptions": ["innocap-prod"],
+      "zones": ["1"],
+      "vnets": ["sql-vnet"],
+      "scale_by": "instance",
+      "num_instances_in_each_subscription_zone_combination": 4,
+      "minimum_ec_sku": "V20MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS",   "root": true,  "capacityGB": 200 },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 2048, "iops": 14000, "mbps": 500, "role": "data" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 2048, "iops": 7000,  "mbps": 250, "role": "log" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 512,  "iops": 3000,  "mbps": 100, "role": "tempdb" }
+      ]
+    },
+    {
+      "id": 3,
+      "Description": "sql_small",
+      "vm_name_prefix": "sqlsm",
+      "os_type": "Windows",
+      "region": "eastus",
+      "subscriptions": ["innocap-prod"],
+      "zones": ["1"],
+      "vnets": ["sql-vnet"],
+      "scale_by": "instance",
+      "num_instances_in_each_subscription_zone_combination": 6,
+      "minimum_ec_sku": "V10MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS",   "root": true,  "capacityGB": 200 },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 1024, "iops": 7000, "mbps": 250, "role": "data" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 1024, "iops": 3500, "mbps": 125, "role": "log" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 256,  "iops": 1500, "mbps": 50,  "role": "tempdb" }
+      ]
+    },
+    {
+      "id": 4,
+      "Description": "common_server_large",
+      "vm_name_prefix": "cslg",
+      "os_type": "Linux",
+      "region": "eastus",
+      "subscriptions": ["innocap-prod"],
+      "zones": ["1"],
+      "vnets": ["app-vnet"],
+      "scale_by": "instance",
+      "num_instances_in_each_subscription_zone_combination": 3,
+      "minimum_ec_sku": "V10MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS", "root": true,  "capacityGB": 200,  "role": "os" },
+        { "drive_type": "Premium_LRS", "root": false, "capacityGB": 3072, "role": "data" }
+      ]
+    },
+    {
+      "id": 5,
+      "Description": "common_server_medium",
+      "vm_name_prefix": "csmd",
+      "os_type": "Linux",
+      "region": "eastus",
+      "subscriptions": ["innocap-prod"],
+      "zones": ["1"],
+      "vnets": ["app-vnet"],
+      "scale_by": "instance",
+      "num_instances_in_each_subscription_zone_combination": 8,
+      "minimum_ec_sku": "V10MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS", "root": true,  "capacityGB": 200,  "role": "os" },
+        { "drive_type": "Premium_LRS", "root": false, "capacityGB": 1536, "role": "data" }
+      ]
+    },
+    {
+      "id": 6,
+      "Description": "common_server_small",
+      "vm_name_prefix": "cssm",
+      "os_type": "Linux",
+      "region": "eastus",
+      "subscriptions": ["innocap-prod"],
+      "zones": ["1"],
+      "vnets": ["app-vnet"],
+      "scale_by": "instance",
+      "num_instances_in_each_subscription_zone_combination": 20,
+      "minimum_ec_sku": "V10MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS", "root": true,  "capacityGB": 200, "role": "os" },
+        { "drive_type": "Premium_LRS", "root": false, "capacityGB": 512, "role": "data" }
+      ]
+    }
+  ]
+}

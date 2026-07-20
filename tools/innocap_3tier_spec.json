@@ -1,0 +1,64 @@
+{
+  "customer": "innocap_synthetic",
+  "output": "C:/Users/micha/Downloads",
+  "_note": "Example synthetic fleet built from tools/workload_models.json (v1.1): 8x sql_small + 4x sql_medium + 2x sql_large, all in eastus. Each model = 200 GiB OS disk + data + log (= data size, half perf) + tempdb. Run: python tools/generate_inventory.py tools/innocap_3tier_spec.json",
+  "disks": [
+    {
+      "id": 1,
+      "Description": "sql_small",
+      "vm_name_prefix": "sqlsm",
+      "os_type": "Windows",
+      "region": "eastus",
+      "subscriptions": ["innocap-prod"],
+      "zones": ["1"],
+      "vnets": ["sql-vnet"],
+      "scale_by": "instance",
+      "num_instances_in_each_subscription_zone_combination": 8,
+      "minimum_ec_sku": "V10MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS",   "root": true,  "capacityGB": 200 },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 1024, "iops": 7000, "mbps": 250, "role": "data" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 1024, "iops": 3500, "mbps": 125, "role": "log" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 256,  "iops": 1500, "mbps": 50,  "role": "tempdb" }
+      ]
+    },
+    {
+      "id": 2,
+      "Description": "sql_medium",
+      "vm_name_prefix": "sqlmd",
+      "os_type": "Windows",
+      "region": "eastus",
+      "subscriptions": ["innocap-prod"],
+      "zones": ["1"],
+      "vnets": ["sql-vnet"],
+      "scale_by": "instance",
+      "num_instances_in_each_subscription_zone_combination": 4,
+      "minimum_ec_sku": "V20MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS",   "root": true,  "capacityGB": 200 },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 2048, "iops": 14000, "mbps": 500, "role": "data" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 2048, "iops": 7000,  "mbps": 250, "role": "log" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 512,  "iops": 3000,  "mbps": 100, "role": "tempdb" }
+      ]
+    },
+    {
+      "id": 3,
+      "Description": "sql_large",
+      "vm_name_prefix": "sqllg",
+      "os_type": "Windows",
+      "region": "eastus",
+      "subscriptions": ["innocap-prod"],
+      "zones": ["1"],
+      "vnets": ["sql-vnet"],
+      "scale_by": "instance",
+      "num_instances_in_each_subscription_zone_combination": 2,
+      "minimum_ec_sku": "V20MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS",   "root": true,  "capacityGB": 200 },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 4096, "iops": 28000, "mbps": 1000, "role": "data" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 4096, "iops": 14000, "mbps": 500,  "role": "log" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 1024, "iops": 6000,  "mbps": 200,  "role": "tempdb" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,131 @@
+{
+  "schema_version": "1.2",
+  "description": "Reusable Azure workload building blocks for synthesizing managed-disk resource-list inventories for the Everpure Azure TCO tool. Two families: (1) SQL Server tiers (sql_*) — a 200 GiB OS disk + provisioned Premium SSD v2 data/log/tempdb, where sql_medium is the baseline, sql_small ~half and sql_large ~double the performance; (2) general-purpose common servers (common_server_*) — a 200 GiB OS disk + a single tier-derived Premium SSD v1 data disk (512 GiB / 1.5 TiB / 3 TiB). Drop a model's 'drive_config' into a generate_inventory.py spec archetype (the 'disks' array), set region/subscriptions/zones/vnets + instance count, and expand into a fleet CSV.",
+
+  "baseline_reference": {
+    "source": "Innocap SQL-on-Azure analysis, storage build-out (per instance)",
+    "capacity_gib": 3072,
+    "iops": 20000,
+    "throughput_mbps": 800,
+    "note": "Original build-out. The models below revise the LOG drive to equal the DATA drive in capacity at half its performance, so the medium tier's data-path totals differ from this origin figure."
+  },
+
+  "conventions": {
+    "generator": "tools/generate_inventory.py expands these archetypes into the resource-list CSV the tool ingests.",
+    "disk_sku_values": {
+      "PremiumV2_LRS": "Premium SSD v2 — provisioned IOPS/MBps; carries the model's performance (set iops + mbps).",
+      "UltraSSD_LRS": "Ultra Disk — provisioned IOPS/MBps.",
+      "Premium_LRS": "Premium SSD v1 — tier-derived performance; do NOT set iops/mbps.",
+      "StandardSSD_LRS": "Standard SSD — tier-derived.",
+      "Standard_LRS": "Standard HDD — tier-derived."
+    },
+    "disk_type_gotcha": "The tool matches disk type by case-insensitive SUBSTRING in this order: 'ultra','standardssd','standard','premiumv2','premium'. Always use the *_LRS SKU names above. 'Premium SSD v2' (with a space) does NOT contain 'premiumv2' and would be MISREAD as Premium v1 — never use friendly names.",
+    "provisioned_only": "Only PremiumV2_LRS and UltraSSD_LRS accept 'iops'/'mbps'. The generator rejects iops/mbps on any other type.",
+    "os_disk": "Each model has one 200 GiB Premium_LRS OS/root disk (root:true). It is realistic filler and is excluded from the IOPS/MBps data-path totals.",
+    "log_sizing": "The log drive matches the data drive's capacity and runs at half its IOPS and half its MBps.",
+    "performance_totals": "The headline 'totals' below are the SQL DATA PATH (data + log + tempdb provisioned disks); the 200 GiB OS disk is excluded.",
+    "role_key": "Each provisioned drive carries a 'role' (data|log|tempdb) for readability; generate_inventory.py ignores unknown keys, so it passes through harmlessly."
+  },
+
+  "models": {
+    "sql_small": {
+      "label": "SQL Small — ~0.5x baseline performance",
+      "relative_performance": 0.5,
+      "totals": { "data_path_capacity_gib": 2304, "iops": 12000, "throughput_mbps": 425 },
+      "total_capacity_incl_os_gib": 2504,
+      "suggested_compute": {
+        "vm_size": "Standard_E8bds_v5", "vcpu": 8, "memory_gib": 64,
+        "note": "E8bds_v5 uncached remote-disk limit ~24,200 IOPS / 680 MBps — covers 12k / 425."
+      },
+      "suggested_minimum_ec_sku": "V10MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS",   "root": true,  "capacityGB": 200 },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 1024, "iops": 7000, "mbps": 250, "role": "data" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 1024, "iops": 3500, "mbps": 125, "role": "log" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 256,  "iops": 1500, "mbps": 50,  "role": "tempdb" }
+      ]
+    },
+
+    "sql_medium": {
+      "label": "SQL Medium — baseline tier",
+      "relative_performance": 1.0,
+      "totals": { "data_path_capacity_gib": 4608, "iops": 24000, "throughput_mbps": 850 },
+      "total_capacity_incl_os_gib": 4808,
+      "suggested_compute": {
+        "vm_size": "Standard_E16bds_v5", "vcpu": 16, "memory_gib": 128,
+        "note": "E16bds_v5 uncached remote-disk limit is well above 24k / 850; matches the §2 benchmark VM."
+      },
+      "suggested_minimum_ec_sku": "V20MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS",   "root": true,  "capacityGB": 200 },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 2048, "iops": 14000, "mbps": 500, "role": "data" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 2048, "iops": 7000,  "mbps": 250, "role": "log" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 512,  "iops": 3000,  "mbps": 100, "role": "tempdb" }
+      ]
+    },
+
+    "sql_large": {
+      "label": "SQL Large — ~2x baseline performance",
+      "relative_performance": 2.0,
+      "totals": { "data_path_capacity_gib": 9216, "iops": 48000, "throughput_mbps": 1700 },
+      "total_capacity_incl_os_gib": 9416,
+      "suggested_compute": {
+        "vm_size": "Standard_E32bds_v5", "vcpu": 32, "memory_gib": 256,
+        "note": "Verify E32bds_v5 uncached limits cover 48k IOPS / 1,700 MBps; step up to Standard_E48bds_v5 for headroom."
+      },
+      "suggested_minimum_ec_sku": "V20MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS",   "root": true,  "capacityGB": 200 },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 4096, "iops": 28000, "mbps": 1000, "role": "data" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 4096, "iops": 14000, "mbps": 500,  "role": "log" },
+        { "drive_type": "PremiumV2_LRS", "root": false, "capacityGB": 1024, "iops": 6000,  "mbps": 200,  "role": "tempdb" }
+      ]
+    },
+
+    "common_server_small": {
+      "label": "Common Server Small — general-purpose, 512 GiB Premium SSD v1 data",
+      "family": "common_server",
+      "totals": { "data_capacity_gib": 512, "performance": "tier-derived — 512 GiB maps to Azure P20 (~2,300 IOPS / 150 MBps)" },
+      "total_capacity_incl_os_gib": 712,
+      "suggested_compute": { "vm_size": "Standard_D4ds_v5", "vcpu": 4, "memory_gib": 16 },
+      "suggested_minimum_ec_sku": "V10MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS", "root": true,  "capacityGB": 200, "role": "os" },
+        { "drive_type": "Premium_LRS", "root": false, "capacityGB": 512, "role": "data" }
+      ]
+    },
+
+    "common_server_medium": {
+      "label": "Common Server Medium — general-purpose, 1.5 TiB Premium SSD v1 data",
+      "family": "common_server",
+      "totals": { "data_capacity_gib": 1536, "performance": "tier-derived — 1,536 GiB maps to Azure P40 (~7,500 IOPS / 250 MBps)" },
+      "total_capacity_incl_os_gib": 1736,
+      "suggested_compute": { "vm_size": "Standard_D8ds_v5", "vcpu": 8, "memory_gib": 32 },
+      "suggested_minimum_ec_sku": "V10MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS", "root": true,  "capacityGB": 200,  "role": "os" },
+        { "drive_type": "Premium_LRS", "root": false, "capacityGB": 1536, "role": "data" }
+      ]
+    },
+
+    "common_server_large": {
+      "label": "Common Server Large — general-purpose, 3 TiB Premium SSD v1 data",
+      "family": "common_server",
+      "totals": { "data_capacity_gib": 3072, "performance": "tier-derived — 3,072 GiB maps to Azure P50 (~7,500 IOPS / 250 MBps)" },
+      "total_capacity_incl_os_gib": 3272,
+      "suggested_compute": { "vm_size": "Standard_D16ds_v5", "vcpu": 16, "memory_gib": 64 },
+      "suggested_minimum_ec_sku": "V10MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS", "root": true,  "capacityGB": 200,  "role": "os" },
+        { "drive_type": "Premium_LRS", "root": false, "capacityGB": 3072, "role": "data" }
+      ]
+    }
+  },
+
+  "usage": {
+    "step_1": "Copy one or more model 'drive_config' blocks into a generate_inventory.py spec — each becomes an archetype under 'disks[]' with its own region/subscriptions/zones/vnets and num_instances_in_each_subscription_zone_combination.",
+    "step_2": "python tools/generate_inventory.py <your_spec>.json -o <out>.csv",
+    "step_3": "Upload the CSV in the tool (Disk Type + Disk Size auto-map), then Run Analysis to get the Azure managed disk vs Everpure Cloud TCO.",
+    "example_spec": "tools/innocap_3tier_spec.json (a ready fleet: 8x small + 4x medium + 2x large)"
+  }
+}
