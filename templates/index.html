@@ -532,7 +532,7 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
       <span class="tab-lock" id="lock-customers">🔒</span>
     </button>
     <button class="tab-btn" data-tab="s3upload" id="tab-s3upload" disabled>
-      <span class="tab-icon">☁️</span> S3 Upload
+      <span class="tab-icon">☁️</span> Data Upload
       <span class="tab-lock" id="lock-s3upload">🔒</span>
     </button>
     <button class="tab-btn" data-tab="builder" id="tab-builder" disabled>
@@ -739,7 +739,7 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
   <div class="tab-pane" id="pane-s3upload">
     <div class="inner-page">
       <div class="page-heading">
-        <h2>☁️ S3 Upload  <span class="badge">Pre-signed URL</span> <button class="help-btn" data-help="s3upload" title="How to use this section">❓ Help</button></h2>
+        <h2>☁️ Data Upload  <button class="help-btn" data-help="s3upload" title="How to use this section">❓ Help</button></h2>
         <p>Files are uploaded directly to S3 — your data never passes through the Flask server.</p>
         <div id="s3-active-customer-banner" style="margin-top:10px;padding:8px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-size:.8rem;display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <span style="color:var(--muted);">User:</span>
@@ -781,11 +781,10 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
 
       <div class="card" style="display:flex;flex-direction:column;gap:20px;">
         <div id="drop-zone">
-          <input type="file" id="file-input"
-            accept=".csv,.json,.xlsx,.xls,.tsv,.png,.jpg,.jpeg,.gif,.webp,.pdf,.txt" />
+          <input type="file" id="file-input" accept=".csv" />
           <span class="dz-icon">☁️</span>
           <div class="dz-primary">Drop a file here, or click to browse</div>
-          <div class="dz-secondary">CSV, JSON, XLSX, TSV, PNG, JPG, PDF, TXT · max 50 MB</div>
+          <div class="dz-secondary">Only CSV files can be uploaded</div>
         </div>
 
         <div id="file-info">
@@ -1996,7 +1995,7 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
       <ul>
         <li>Select or create a <strong>customer</strong> and a <strong>scenario</strong> (e.g. <code>default</code>). Together they define the folder your data lives under.</li>
       </ul>
-      <h3>3 · S3 Upload — upload &amp; map your data</h3>
+      <h3>3 · Data Upload — upload &amp; map your data</h3>
       <ol>
         <li>Drop or browse to a workload inventory <strong>CSV</strong> and upload it.</li>
         <li>Columns are <strong>auto-matched</strong> to known fields; a <strong>data preview</strong> (first 3 rows) shows above the mapping grid.</li>
@@ -2040,7 +2039,7 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
         <li>The customer list is stored at <code>TCO-GUI/_config/customer_list.json</code>.</li>
       </ul>` },
 
-    s3upload: { title: "❓ S3 Upload — upload &amp; column mapping", html: `
+    s3upload: { title: "❓ Data Upload — upload &amp; column mapping", html: `
       <p>Upload a workload inventory CSV and tell the tool which columns mean what, then parse it into the dataset the cost engine uses.</p>
       <h3>Steps</h3>
       <ol>
