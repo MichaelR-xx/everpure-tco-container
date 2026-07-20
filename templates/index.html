@@ -572,6 +572,20 @@ body.theme-accenture {
   --cover-opacity: 0.14;
 }
 
+/* AHEAD — dark canvas with the signature bright "sushi green" accent + forward arrow */
+body.theme-ahead {
+  --bg:#0b0d0a; --surface:#161814; --surface2:#1f221b; --border:#32372b;
+  --text:#f1f4ee; --muted:#9aa392; --accent:#8cc63f; --accent2:#6fae2f;
+  --success:#5bb26e; --warning:#f5a623; --danger:#e0574a;
+  --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --cover-art: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 200%22><path d=%22M40 100 L150 100 M110 62 L150 100 L110 138%22 fill=%22none%22 stroke=%22%238cc63f%22 stroke-width=%2214%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/></svg>');
+  --cover-opacity: 0.13;
+}
+/* Bright green accent needs dark button text for contrast. */
+body.theme-ahead .btn-sm.save, body.theme-ahead .btn-upload,
+body.theme-ahead button.save, body.theme-ahead #btn-run-analysis,
+body.theme-ahead #btn-login { color:#0b0d0a !important; }
+
 </style>
 </head>
 <body>
@@ -611,6 +625,7 @@ body.theme-accenture {
     <option value="everpure">Theme: Everpure</option>
     <option value="wipro">Theme: Wipro</option>
     <option value="accenture">Theme: Accenture</option>
+    <option value="ahead">Theme: AHEAD</option>
     <option value="minecraft">Theme: Minecraft</option>
     <option value="starwars">Theme: Star Wars</option>
     <option value="startrek">Theme: Star Trek</option>
@@ -7041,6 +7056,7 @@ function resetGuiToDefaults(delayMs) {
     everpure: { cls: "", prefix: "" },
     wipro: { cls: "theme-wipro", prefix: "" },
     accenture: { cls: "theme-accenture", prefix: "" },
+    ahead: { cls: "theme-ahead", prefix: "" },
     minecraft: {
       cls: "theme-minecraft", prefix: "⛏ ",
       tabs: { "tab-login":"Join World","tab-jsondata":"Redstone Config","tab-customers":"Villages","tab-s3upload":"Ender Chest","tab-results":"Loot Table","tab-tco":"Trading Hall","tab-logout":"Leave World" },
@@ -7072,7 +7088,7 @@ function resetGuiToDefaults(delayMs) {
       labels: { "run-analysis-label":"Strike","btn-login":"🦗 Camouflage","btn-tco-evaluate":"Ambush","btn-add-customer":"Spot Prey" },
     },
   };
-  const ALL_CLASSES = ["theme-wipro", "theme-accenture", "theme-minecraft", "theme-starwars", "theme-startrek", "theme-mtu", "theme-nuggets", "theme-mantis"];
+  const ALL_CLASSES = ["theme-wipro", "theme-accenture", "theme-ahead", "theme-minecraft", "theme-starwars", "theme-startrek", "theme-mtu", "theme-nuggets", "theme-mantis"];
 
   function firstText(el) {
     if (!el) return null;
