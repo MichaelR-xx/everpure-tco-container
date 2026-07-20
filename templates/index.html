@@ -152,7 +152,7 @@ body::before {
   display: none;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(ellipse 80% 60% at 50% 30%, rgba(254,80,0,.08) 0%, transparent 70%);
+  background: radial-gradient(ellipse 80% 60% at 50% 30%, color-mix(in srgb, var(--accent) 8%, transparent) 0%, transparent 70%);
 }
 #pane-login.active { display: flex; }
 
@@ -234,8 +234,8 @@ body::before {
 .badge {
   font-size: .62rem; font-weight: 700; letter-spacing: .1em;
   text-transform: uppercase;
-  background: rgba(254,80,0,.12); color: var(--accent);
-  border: 1px solid rgba(254,80,0,.3);
+  background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
   border-radius: 20px; padding: 2px 8px;
 }
 .badge.green {
@@ -243,8 +243,8 @@ body::before {
   border-color: rgba(122,184,122,.3);
 }
 .badge.orange {
-  background: rgba(36,64,92,.12); color: var(--accent2);
-  border-color: rgba(36,64,92,.3);
+  background: color-mix(in srgb, var(--accent2) 12%, transparent); color: var(--accent2);
+  border-color: color-mix(in srgb, var(--accent2) 30%, transparent);
 }
 
 .card {
@@ -304,7 +304,7 @@ body::before {
   padding: 24px 16px; text-align: center; cursor: pointer;
   transition: border-color var(--tr), background var(--tr); position: relative;
 }
-#json-drop-zone.drag-over { border-color: var(--accent); background: rgba(254,80,0,.05); }
+#json-drop-zone.drag-over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 5%, transparent); }
 #json-drop-zone input[type="file"] {
   position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
 }
@@ -336,7 +336,7 @@ body::before {
   padding: 48px 24px; text-align: center; cursor: pointer;
   transition: border-color var(--tr), background var(--tr); position: relative;
 }
-#drop-zone.drag-over { border-color: var(--accent); background: rgba(254,80,0,.06); }
+#drop-zone.drag-over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 #drop-zone input[type="file"] {
   position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
 }
@@ -412,7 +412,7 @@ body::before {
 .msg.error   { border-color: var(--danger);  color: #e09090; }
 .msg.warning { border-color: var(--warning); color: #d4be80; }
 .msg.success { border-color: var(--success); color: #90c890; }
-.msg.info    { border-color: var(--accent);  color: #c8a878; }
+.msg.info    { border-color: var(--accent);  color: var(--accent); }
 
 #tooltip {
   position: fixed; background: var(--surface); border: 1px solid var(--border);
@@ -441,7 +441,7 @@ body::before {
 }
 
 /* Group breakdown table */
-#results-group-tbody tr:hover td { background: rgba(254,80,0,.05); }
+#results-group-tbody tr:hover td { background: color-mix(in srgb, var(--accent) 5%, transparent); }
 
 /* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 820px) {
@@ -548,6 +548,20 @@ body.theme-mantis {
 body.theme-mantis .btn-sm.save, body.theme-mantis .btn-upload, body.theme-mantis button.save, body.theme-mantis #btn-run-analysis {
   color:#10241a !important;
 }
+
+/* Wipro — corporate light: deep aubergine primary with the rainbow-dot mark */
+body.theme-wipro {
+  --bg:#e9e6f1; --surface:#ffffff; --surface2:#f2eff8; --border:#dcd6e8;
+  --text:#20143a; --muted:#6c6488; --accent:#351a55; --accent2:#be266a;
+  --success:#4f9d3a; --warning:#f57f2a; --danger:#c8304f;
+  --font-ui: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --cover-art: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 200%22><circle cx=%22160%22 cy=%22100%22 r=%2211%22 fill=%22%23351A55%22/><circle cx=%22152%22 cy=%22130%22 r=%2211%22 fill=%22%23355493%22/><circle cx=%22130%22 cy=%22152%22 r=%2211%22 fill=%22%23746FA7%22/><circle cx=%22100%22 cy=%22160%22 r=%2211%22 fill=%22%23BE266A%22/><circle cx=%2270%22 cy=%22152%22 r=%2211%22 fill=%22%23F57F2A%22/><circle cx=%2248%22 cy=%22130%22 r=%2211%22 fill=%22%23FFCD2E%22/><circle cx=%2240%22 cy=%22100%22 r=%2211%22 fill=%22%237EC45F%22/><circle cx=%2248%22 cy=%2270%22 r=%2211%22 fill=%22%233498B3%22/><circle cx=%2270%22 cy=%2248%22 r=%2211%22 fill=%22%23351A55%22/><circle cx=%22100%22 cy=%2240%22 r=%2211%22 fill=%22%23355493%22/><circle cx=%22130%22 cy=%2248%22 r=%2211%22 fill=%22%23746FA7%22/><circle cx=%22152%22 cy=%2270%22 r=%2211%22 fill=%22%23BE266A%22/><circle cx=%22100%22 cy=%22100%22 r=%2216%22 fill=%22%23351A55%22/></svg>');
+  --cover-opacity: 0.10;
+}
+/* Keep primary action buttons legible (white on deep purple). */
+body.theme-wipro .btn-sm.save, body.theme-wipro .btn-upload,
+body.theme-wipro button.save, body.theme-wipro #btn-run-analysis { color:#fff !important; }
+
 </style>
 </head>
 <body>
@@ -585,6 +599,7 @@ body.theme-mantis .btn-sm.save, body.theme-mantis .btn-upload, body.theme-mantis
   </div>
   <select id="theme-select" title="UI theme" style="margin-left:auto;flex-shrink:0;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.72rem;font-weight:700;padding:6px 10px;cursor:pointer;">
     <option value="everpure">Theme: Everpure</option>
+    <option value="wipro">Theme: Wipro</option>
     <option value="minecraft">Theme: Minecraft</option>
     <option value="starwars">Theme: Star Wars</option>
     <option value="startrek">Theme: Star Trek</option>
@@ -707,7 +722,7 @@ body.theme-mantis .btn-sm.save, body.theme-mantis .btn-upload, body.theme-mantis
 
           <div class="msg-area" id="customer-messages"></div>
 
-          <div class="card" style="border-color:rgba(36,64,92,.25);display:flex;flex-direction:column;gap:10px;">
+          <div class="card" style="border-color:color-mix(in srgb, var(--accent2) 25%, transparent);display:flex;flex-direction:column;gap:10px;">
             <div class="ctrl-label" style="color:var(--warning);">Session Management</div>
             <div style="font-size:.75rem;color:var(--muted);line-height:1.5;">
               Clears active customer, scenario, and JSON config from your session while keeping you signed in.
@@ -924,7 +939,7 @@ body.theme-mantis .btn-sm.save, body.theme-mantis .btn-upload, body.theme-mantis
       </div>
 
       <!-- ── Analysis Parameters Panel ───────────────────── -->
-      <div class="card" id="analysis-params-panel" style="display:flex;flex-direction:column;gap:0;border-color:rgba(254,80,0,.3);">
+      <div class="card" id="analysis-params-panel" style="display:flex;flex-direction:column;gap:0;border-color:color-mix(in srgb, var(--accent) 30%, transparent);">
         <!-- Header / toggle -->
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 20px;cursor:pointer;user-select:none;" id="analysis-params-toggle">
           <div style="display:flex;align-items:center;gap:10px;">
@@ -1416,7 +1431,7 @@ body.theme-mantis .btn-sm.save, body.theme-mantis .btn-upload, body.theme-mantis
             <!-- Group detail panel (shown when a group row is clicked) -->
             <div id="results-group-detail" style="display:none;flex-direction:column;gap:0;">
               <div class="card" style="border-color:var(--accent);padding:0;overflow:hidden;">
-                <div style="padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:rgba(254,80,0,.06);">
+                <div style="padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:color-mix(in srgb, var(--accent) 6%, transparent);">
                   <div style="display:flex;align-items:center;gap:10px;">
                     <span style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Group Detail —</span>
                     <span id="gd-title" style="font-size:.85rem;font-weight:700;color:var(--accent);font-family:var(--font-mono);">—</span>
@@ -3311,7 +3326,7 @@ function resetGuiToDefaults(delayMs) {
       const isActive = f.key === selectedKey;
       row.style.cssText =
         "padding:12px 16px;cursor:pointer;border-bottom:1px solid var(--border);" +
-        "transition:background .15s;" + (isActive ? "background:rgba(254,80,0,.12);" : "") +
+        "transition:background .15s;" + (isActive ? "background:color-mix(in srgb, var(--accent) 12%, transparent);" : "") +
         (f.is_filtered ? "border-left:4px solid #5a9898;" : "");
       // Filtered datasets get a badge describing the use-case filter.
       const filterBadge = f.is_filtered
@@ -3444,7 +3459,7 @@ function resetGuiToDefaults(delayMs) {
       const tr = document.createElement("tr");
       tr.dataset.groupId = g.group_id;
       tr.style.cssText = "border-bottom:1px solid var(--border);transition:background .12s;cursor:pointer;" +
-        (isSelected ? "background:rgba(254,80,0,.12);outline:1px solid var(--accent);" : "");
+        (isSelected ? "background:color-mix(in srgb, var(--accent) 12%, transparent);outline:1px solid var(--accent);" : "");
       const cost = g.total_cost != null
         ? "$" + Number(g.total_cost).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})
         : "—";
@@ -3464,7 +3479,7 @@ function resetGuiToDefaults(delayMs) {
         <td style="padding:8px 12px;text-align:right;color:var(--warning);">${cap}</td>
         <td style="padding:8px 12px;text-align:right;color:var(--success);">${cost}</td>
       `;
-      tr.addEventListener("mouseenter", () => { if (g.group_id !== _selectedGroupId) tr.style.background = "rgba(254,80,0,.06)"; });
+      tr.addEventListener("mouseenter", () => { if (g.group_id !== _selectedGroupId) tr.style.background = "color-mix(in srgb, var(--accent) 6%, transparent)"; });
       tr.addEventListener("mouseleave", () => { if (g.group_id !== _selectedGroupId) tr.style.background = ""; });
       tr.addEventListener("click", () => showGroupDetail(g, tr));
       tbody.appendChild(tr);
@@ -3487,7 +3502,7 @@ function resetGuiToDefaults(delayMs) {
       r.style.background = "";
       r.style.outline = "";
     });
-    clickedTr.style.background = "rgba(254,80,0,.12)";
+    clickedTr.style.background = "color-mix(in srgb, var(--accent) 12%, transparent)";
     clickedTr.style.outline = "1px solid var(--accent)";
 
     // Populate detail panel
@@ -5824,7 +5839,7 @@ function resetGuiToDefaults(delayMs) {
     const sumVolumes = incl.reduce((s, c) => s + c.numVolumes, 0);
     const sumArrays  = incl.reduce((s, c) => s + c.arrayCount, 0);
     const tf = (v, extra) => `<td style="padding:9px 10px;border-top:2px solid var(--border);font-weight:700;${extra || ""}">${v}</td>`;
-    html += `<tfoot><tr style="background:rgba(254,80,0,.08);">
+    html += `<tfoot><tr style="background:color-mix(in srgb, var(--accent) 8%, transparent);">
         ${tf("TOTAL (included)")}${tf("")}${tf("")}${tf("")}${tf("")}${tf("")}
         ${tf(intFmt(sumCompute), mono)}
         ${tf(intFmt(sumVolumes), mono)}
@@ -7013,6 +7028,7 @@ function resetGuiToDefaults(delayMs) {
 
   const THEMES = {
     everpure: { cls: "", prefix: "" },
+    wipro: { cls: "theme-wipro", prefix: "" },
     minecraft: {
       cls: "theme-minecraft", prefix: "⛏ ",
       tabs: { "tab-login":"Join World","tab-jsondata":"Redstone Config","tab-customers":"Villages","tab-s3upload":"Ender Chest","tab-results":"Loot Table","tab-tco":"Trading Hall","tab-logout":"Leave World" },
@@ -7044,7 +7060,7 @@ function resetGuiToDefaults(delayMs) {
       labels: { "run-analysis-label":"Strike","btn-login":"🦗 Camouflage","btn-tco-evaluate":"Ambush","btn-add-customer":"Spot Prey" },
     },
   };
-  const ALL_CLASSES = ["theme-minecraft", "theme-starwars", "theme-startrek", "theme-mtu", "theme-nuggets", "theme-mantis"];
+  const ALL_CLASSES = ["theme-wipro", "theme-minecraft", "theme-starwars", "theme-startrek", "theme-mtu", "theme-nuggets", "theme-mantis"];
 
   function firstText(el) {
     if (!el) return null;
