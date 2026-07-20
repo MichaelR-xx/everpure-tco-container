@@ -513,6 +513,16 @@ body.theme-ahead .btn-sm.save, body.theme-ahead .btn-upload,
 body.theme-ahead button.save, body.theme-ahead #btn-run-analysis,
 body.theme-ahead #btn-login { color:#0b0d0a !important; }
 
+/* Kyndryl — clean light canvas, charcoal text, signature Kyndryl red + bridge arc */
+body.theme-kyndryl {
+  --bg:#e8e5e2; --surface:#ffffff; --surface2:#f4f2f0; --border:#dcd7d2;
+  --text:#1a1a1a; --muted:#6a6560; --accent:#ff462d; --accent2:#37474f;
+  --success:#2e8b57; --warning:#d97706; --danger:#c0392b;
+  --font-ui: system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  --cover-art: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 200%22><path d=%22M24 150 Q100 34 176 150%22 fill=%22none%22 stroke=%22%23ff462d%22 stroke-width=%2214%22 stroke-linecap=%22round%22/><line x1=%2224%22 y1=%22150%22 x2=%22176%22 y2=%22150%22 stroke=%22%23ff462d%22 stroke-width=%2210%22 stroke-linecap=%22round%22/></svg>');
+  --cover-opacity: 0.10;
+}
+
 </style>
 </head>
 <body>
@@ -557,6 +567,7 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
     <option value="wipro">Theme: Wipro</option>
     <option value="accenture">Theme: Accenture</option>
     <option value="ahead">Theme: AHEAD</option>
+    <option value="kyndryl">Theme: Kyndryl</option>
   </select>
   <div id="user-pill">
     <span id="user-name"></span>
@@ -7447,8 +7458,9 @@ function resetGuiToDefaults(delayMs) {
     wipro: { cls: "theme-wipro", prefix: "", brand: "Wipro" },
     accenture: { cls: "theme-accenture", prefix: "", brand: "Accenture" },
     ahead: { cls: "theme-ahead", prefix: "", brand: "AHEAD" },
+    kyndryl: { cls: "theme-kyndryl", prefix: "", brand: "Kyndryl" },
   };
-  const ALL_CLASSES = ["theme-wipro", "theme-accenture", "theme-ahead"];
+  const ALL_CLASSES = ["theme-wipro", "theme-accenture", "theme-ahead", "theme-kyndryl"];
 
   function firstText(el) {
     if (!el) return null;
