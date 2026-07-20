@@ -1,6 +1,6 @@
 {
   "schema_version": "1.2",
-  "description": "Reusable Azure workload building blocks for synthesizing managed-disk resource-list inventories for the Everpure Azure TCO tool. Two families: (1) SQL Server tiers (sql_*) — a 200 GiB OS disk + provisioned Premium SSD v2 data/log/tempdb, where sql_medium is the baseline, sql_small ~half and sql_large ~double the performance; (2) general-purpose common servers (common_server_*) — a 200 GiB OS disk + a single tier-derived Premium SSD v1 data disk (512 GiB / 1.5 TiB / 3 TiB). Drop a model's 'drive_config' into a generate_inventory.py spec archetype (the 'disks' array), set region/subscriptions/zones/vnets + instance count, and expand into a fleet CSV.",
+  "description": "Reusable Azure workload building blocks for synthesizing managed-disk resource-list inventories for the Everpure Azure TCO tool. Two families: (1) SQL Server tiers (sql_{small,medium,large}_{v1,v2}) — a 200 GiB OS disk + data/log/tempdb; the v1 variant uses Premium SSD v1 (Premium_LRS, tier-derived performance) for the data path, the v2 variant uses provisioned Premium SSD v2 (PremiumV2_LRS) — small/medium/large scale ~0.5×/1×/2×, and each v1/v2 pair shares the same capacities; (2) general-purpose common servers (common_server_*) — a 200 GiB OS disk + a single tier-derived Premium SSD v1 data disk (512 GiB / 1.5 TiB / 3 TiB). Drop a model's 'drive_config' into a generate_inventory.py spec archetype (the 'disks' array), set region/subscriptions/zones/vnets + instance count, and expand into a fleet CSV.",
 
   "baseline_reference": {
     "source": "Innocap SQL-on-Azure analysis, storage build-out (per instance)",
@@ -28,9 +28,23 @@
   },
 
   "models": {
-    "sql_small": {
-      "label": "SQL Small — ~0.5x baseline performance",
-      "relative_performance": 0.5,
+    "sql_small_v1": {
+      "label": "SQL Small (v1) — Premium SSD v1 data/log, ~0.5× baseline",
+      "family": "sql", "relative_performance": 0.5,
+      "totals": { "data_path_capacity_gib": 2304, "performance": "tier-derived (Premium SSD v1 P-tiers)" },
+      "total_capacity_incl_os_gib": 2504,
+      "suggested_compute": { "vm_size": "Standard_E8bds_v5", "vcpu": 8, "memory_gib": 64 },
+      "suggested_minimum_ec_sku": "V10MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS", "root": true,  "capacityGB": 200 },
+        { "drive_type": "Premium_LRS", "root": false, "capacityGB": 1024, "role": "data" },
+        { "drive_type": "Premium_LRS", "root": false, "capacityGB": 1024, "role": "log" },
+        { "drive_type": "Premium_LRS", "root": false, "capacityGB": 256,  "role": "tempdb" }
+      ]
+    },
+    "sql_small_v2": {
+      "label": "SQL Small (v2) — Premium SSD v2 data/log, ~0.5× baseline",
+      "family": "sql", "relative_performance": 0.5,
       "totals": { "data_path_capacity_gib": 2304, "iops": 12000, "throughput_mbps": 425 },
       "total_capacity_incl_os_gib": 2504,
       "suggested_compute": {
@@ -46,9 +60,23 @@
       ]
     },
 
-    "sql_medium": {
-      "label": "SQL Medium — baseline tier",
-      "relative_performance": 1.0,
+    "sql_medium_v1": {
+      "label": "SQL Medium (v1) — Premium SSD v1 data/log, baseline tier",
+      "family": "sql", "relative_performance": 1.0,
+      "totals": { "data_path_capacity_gib": 4608, "performance": "tier-derived (Premium SSD v1 P-tiers)" },
+      "total_capacity_incl_os_gib": 4808,
+      "suggested_compute": { "vm_size": "Standard_E16bds_v5", "vcpu": 16, "memory_gib": 128 },
+      "suggested_minimum_ec_sku": "V20MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS", "root": true,  "capacityGB": 200 },
+        { "drive_type": "Premium_LRS", "root": false, "capacityGB": 2048, "role": "data" },
+        { "drive_type": "Premium_LRS", "root": false, "capacityGB": 2048, "role": "log" },
+        { "drive_type": "Premium_LRS", "root": false, "capacityGB": 512,  "role": "tempdb" }
+      ]
+    },
+    "sql_medium_v2": {
+      "label": "SQL Medium (v2) — Premium SSD v2 data/log, baseline tier",
+      "family": "sql", "relative_performance": 1.0,
       "totals": { "data_path_capacity_gib": 4608, "iops": 24000, "throughput_mbps": 850 },
       "total_capacity_incl_os_gib": 4808,
       "suggested_compute": {
@@ -64,9 +92,23 @@
       ]
     },
 
-    "sql_large": {
-      "label": "SQL Large — ~2x baseline performance",
-      "relative_performance": 2.0,
+    "sql_large_v1": {
+      "label": "SQL Large (v1) — Premium SSD v1 data/log, ~2× baseline",
+      "family": "sql", "relative_performance": 2.0,
+      "totals": { "data_path_capacity_gib": 9216, "performance": "tier-derived (Premium SSD v1 P-tiers)" },
+      "total_capacity_incl_os_gib": 9416,
+      "suggested_compute": { "vm_size": "Standard_E32bds_v5", "vcpu": 32, "memory_gib": 256 },
+      "suggested_minimum_ec_sku": "V20MP2R2",
+      "drive_config": [
+        { "drive_type": "Premium_LRS", "root": true,  "capacityGB": 200 },
+        { "drive_type": "Premium_LRS", "root": false, "capacityGB": 4096, "role": "data" },
+        { "drive_type": "Premium_LRS", "root": false, "capacityGB": 4096, "role": "log" },
+        { "drive_type": "Premium_LRS", "root": false, "capacityGB": 1024, "role": "tempdb" }
+      ]
+    },
+    "sql_large_v2": {
+      "label": "SQL Large (v2) — Premium SSD v2 data/log, ~2× baseline",
+      "family": "sql", "relative_performance": 2.0,
       "totals": { "data_path_capacity_gib": 9216, "iops": 48000, "throughput_mbps": 1700 },
       "total_capacity_incl_os_gib": 9416,
       "suggested_compute": {

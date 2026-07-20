@@ -59,10 +59,11 @@ See `sample_spec.json` for a complete example (39 VMs → 156 disk rows).
 
 | Model | OS disk | Data path | Notes |
 |---|---|---|---|
-| `sql_small` / `sql_medium` / `sql_large` | 200 GiB `Premium_LRS` | `PremiumV2_LRS` data + log + tempdb | log = data size at half its IOPS/MBps; tiers scale 0.5× / 1× / 2× (12k / 24k / 48k IOPS) |
+| `sql_{small,medium,large}_v1` | 200 GiB `Premium_LRS` | `Premium_LRS` data + log + tempdb | tier-derived performance; same capacities as the matching v2 |
+| `sql_{small,medium,large}_v2` | 200 GiB `Premium_LRS` | `PremiumV2_LRS` data + log + tempdb | provisioned IOPS/MBps; log = data size at half its IOPS/MBps; v2 tiers scale 0.5× / 1× / 2× (12k / 24k / 48k IOPS) |
 | `common_server_small` / `_medium` / `_large` | 200 GiB `Premium_LRS` | one `Premium_LRS` data disk (512 GiB / 1.5 TiB / 3 TiB) | tier-derived performance (no provisioned IOPS/MBps) |
 
-The SQL tiers are derived from the Innocap SQL-on-Azure storage build-out (`sql_medium` = baseline).
+The SQL tiers are derived from the Innocap SQL-on-Azure storage build-out (`sql_medium` = baseline); each comes in a **v1** (Premium SSD v1) and **v2** (Premium SSD v2) variant.
 
 ### Ready-to-run example specs
 
