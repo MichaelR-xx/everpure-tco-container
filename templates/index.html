@@ -80,7 +80,7 @@ body::before {
   flex-shrink: 0;
   line-height: 1.25;
 }
-#topbar .logo span { color: var(--accent); }
+#topbar .logo #logo-brand { color: var(--accent); }
 #topbar .logo .logo-sub {
   display: block;
   font-size: .62rem;
@@ -497,7 +497,7 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
 <!-- ══ TOPBAR ═════════════════════════════════════════════ -->
 <nav id="topbar">
   <div class="logo">
-    <span>Everpure</span> Azure Disk Viz
+    <span id="logo-brand">Everpure</span> <span id="logo-tail">Azure Disk Viz</span>
     <span class="logo-sub">Managed Disk Visualization Tool</span>
   </div>
   <div id="tab-strip">
@@ -544,7 +544,7 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
     <div class="login-card">
       <div class="lc-header">
         <div class="lc-logo">💧</div>
-        <h2>Everpure Azure Disk Viz</h2>
+        <h2 id="login-title">Everpure Azure Disk Viz</h2>
         <p class="lc-sub" id="login-subtitle">Sign in to access your managed disk data and analysis</p>
       </div>
 
@@ -6951,10 +6951,10 @@ function resetGuiToDefaults(delayMs) {
   const store = [];   // {node, orig} of reworded text nodes (current theme)
 
   const THEMES = {
-    everpure: { cls: "", prefix: "" },
-    wipro: { cls: "theme-wipro", prefix: "" },
-    accenture: { cls: "theme-accenture", prefix: "" },
-    ahead: { cls: "theme-ahead", prefix: "" },
+    everpure: { cls: "", prefix: "", brand: "Everpure" },
+    wipro: { cls: "theme-wipro", prefix: "", brand: "Wipro" },
+    accenture: { cls: "theme-accenture", prefix: "", brand: "Accenture" },
+    ahead: { cls: "theme-ahead", prefix: "", brand: "AHEAD" },
   };
   const ALL_CLASSES = ["theme-wipro", "theme-accenture", "theme-ahead"];
 
@@ -6974,6 +6974,16 @@ function resetGuiToDefaults(delayMs) {
     ALL_CLASSES.forEach(c => document.body.classList.remove(c));
     const t = THEMES[key] || THEMES.everpure;
     if (t.cls) document.body.classList.add(t.cls);
+    // Brand the page title. Everpure stays "Everpure Azure Disk Viz"; a brand theme
+    // reads "<Company> Azure Disk Viz by Everpure".
+    const co = t.brand || "Everpure";
+    const tail = (key === "everpure") ? "Azure Disk Viz" : "Azure Disk Viz by Everpure";
+    const brandEl = document.getElementById("logo-brand");
+    const tailEl  = document.getElementById("logo-tail");
+    const loginEl = document.getElementById("login-title");
+    if (brandEl) brandEl.textContent = co;
+    if (tailEl)  tailEl.textContent  = tail;
+    if (loginEl) loginEl.textContent = co + " " + tail;
     if (t.tabs)   for (const id in t.tabs)   reword(document.getElementById(id), t.tabs[id], true);
     if (t.labels) for (const id in t.labels) reword(document.getElementById(id), t.labels[id], false);
     if (t.prefix) document.querySelectorAll(".page-heading h2").forEach(h => {
