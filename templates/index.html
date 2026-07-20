@@ -1116,8 +1116,12 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
             <div id="field-default-sku" style="display:flex;flex-direction:column;gap:7px;min-width:200px;">
               <label style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Default SKU Model</label>
               <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
-                <button class="sku-btn active" data-sku="V10MP2R2"
+                <button class="sku-btn active" data-sku="Any"
                   style="flex:1;padding:8px 6px;background:var(--accent);border:none;color:#fff;font-size:.72rem;font-weight:700;cursor:pointer;transition:background .15s,color .15s;font-family:var(--font-mono);letter-spacing:.02em;">
+                  Any
+                </button>
+                <button class="sku-btn" data-sku="V10MP2R2"
+                  style="flex:1;padding:8px 6px;background:var(--surface2);border:none;border-left:1px solid var(--border);color:var(--muted);font-size:.72rem;font-weight:700;cursor:pointer;transition:background .15s,color .15s;font-family:var(--font-mono);letter-spacing:.02em;">
                   V10
                 </button>
                 <button class="sku-btn" data-sku="V20MP2R2"
@@ -1129,7 +1133,7 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
                   V50
                 </button>
               </div>
-              <div id="sku-full-name" style="font-size:.65rem;color:var(--muted);font-family:var(--font-mono);">V10MP2R2</div>
+              <div id="sku-full-name" style="font-size:.65rem;color:var(--muted);font-family:var(--font-mono);">Any — lowest-cost SKU per group</div>
             </div>
 
             <!-- Consider IOPS toggle -->
@@ -4324,7 +4328,10 @@ function resetGuiToDefaults(delayMs) {
   bindSlider("param-efficiency","val-efficiency", v => `${v}%`);
 
   // ── SKU model toggle ────────────────────────────────────
-  let activeSku = "V10MP2R2";
+  // "Any" (default) lets the engine pick the lowest-cost SKU per group; a specific
+  // SKU forces that model where it fits.
+  let activeSku = "Any";
+  const skuFullName = s => s === "Any" ? "Any — lowest-cost SKU per group" : s;
   document.querySelectorAll(".sku-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".sku-btn").forEach(b => {
@@ -4334,7 +4341,7 @@ function resetGuiToDefaults(delayMs) {
       btn.style.background = "var(--accent)";
       btn.style.color      = "#fff";
       activeSku = btn.dataset.sku;
-      document.getElementById("sku-full-name").textContent = activeSku;
+      document.getElementById("sku-full-name").textContent = skuFullName(activeSku);
       updateParamsSummary();
     });
   });
