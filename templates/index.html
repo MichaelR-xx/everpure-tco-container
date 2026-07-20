@@ -451,103 +451,7 @@ body::before {
   .tab-btn { padding: 0 12px; font-size: .75rem; }
 }
 
-/* ══ ALTERNATE THEMES ═════════════════════════════════════ */
-/* Minecraft — grass/stone, blocky, pixel font */
-body.theme-minecraft {
-  --bg:#6a9b41; --surface:#c2c2c2; --surface2:#9d9d9d; --border:#2b2b2b;
-  --text:#1d1d1d; --muted:#333333; --accent:#4f9e2f; --accent2:#7c5a3a;
-  --success:#3f8f2f; --danger:#a83232;
-  --font-ui:"Courier New", monospace; --font-mono:"Courier New", monospace;
-  /* Minecraft cover art — creeper face */
-  --cover-art: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 200%22><rect x=%2228%22 y=%2228%22 width=%22144%22 height=%22144%22 fill=%22%234f9e2f%22/><rect x=%2258%22 y=%2262%22 width=%2230%22 height=%2230%22 fill=%22%23111%22/><rect x=%22112%22 y=%2262%22 width=%2230%22 height=%2230%22 fill=%22%23111%22/><rect x=%2285%22 y=%2296%22 width=%2230%22 height=%2228%22 fill=%22%23111%22/><rect x=%2270%22 y=%22124%22 width=%2216%22 height=%2228%22 fill=%22%23111%22/><rect x=%22114%22 y=%22124%22 width=%2216%22 height=%2228%22 fill=%22%23111%22/><rect x=%2285%22 y=%22124%22 width=%2230%22 height=%2218%22 fill=%22%23111%22/></svg>');
-  --cover-opacity: 0.16;
-}
-body.theme-minecraft, body.theme-minecraft * { border-radius: 0 !important; letter-spacing: .02em; }
-body.theme-minecraft .card, body.theme-minecraft #topbar, body.theme-minecraft .login-card,
-body.theme-minecraft input, body.theme-minecraft select, body.theme-minecraft textarea,
-body.theme-minecraft .btn-sm, body.theme-minecraft .btn-upload {
-  border-width: 3px !important; border-style: solid !important; border-color: var(--border) !important;
-}
-body.theme-minecraft .card, body.theme-minecraft .login-card { box-shadow: 5px 5px 0 rgba(0,0,0,.32) !important; }
-body.theme-minecraft .btn-sm.save, body.theme-minecraft .btn-upload, body.theme-minecraft button.save, body.theme-minecraft #btn-run-analysis {
-  background: var(--accent) !important; color:#fff !important;
-  border: 3px solid #2f6b1a !important; text-shadow: 1px 1px 0 rgba(0,0,0,.4);
-  box-shadow: inset -3px -3px 0 rgba(0,0,0,.28) !important;
-}
-
-/* Star Wars — deep space black, saber-yellow accent */
-body.theme-starwars {
-  --bg:#05070d; --surface:#12151c; --surface2:#1c2029; --border:#2b3340;
-  --text:#e6e8ec; --muted:#8a93a3; --accent:#ffe81f; --accent2:#4a90d9;
-  --success:#4caf50; --danger:#ff4c4c;
-  --font-ui:"Arial Black", Arial, sans-serif;
-  /* Star Wars cover art — Death Star */
-  --cover-art: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 200%22><circle cx=%22100%22 cy=%22100%22 r=%2272%22 fill=%22none%22 stroke=%22%23ffe81f%22 stroke-width=%226%22/><circle cx=%2270%22 cy=%2270%22 r=%2218%22 fill=%22none%22 stroke=%22%23ffe81f%22 stroke-width=%226%22/><line x1=%2230%22 y1=%22100%22 x2=%22170%22 y2=%22100%22 stroke=%22%23ffe81f%22 stroke-width=%224%22/></svg>');
-  --cover-opacity: 0.12;
-}
-body.theme-starwars .btn-sm.save, body.theme-starwars .btn-upload, body.theme-starwars button.save, body.theme-starwars #btn-run-analysis {
-  color:#111 !important; text-shadow:none;
-}
-
-/* Star Trek — LCARS: black canvas, amber/purple, rounded pill panels */
-body.theme-startrek {
-  --bg:#000000; --surface:#14141c; --surface2:#23232f; --border:#ff9900;
-  --text:#ffcc99; --muted:#cc99cc; --accent:#ff9900; --accent2:#9999ff;
-  --success:#99cc99; --danger:#cc6666;
-  --font-ui:"Arial Narrow", Arial, sans-serif;
-  /* Star Trek cover art — Starfleet delta insignia */
-  --cover-art: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 200%22><path fill=%22%23ff9900%22 d=%22M100 24 C132 92 142 124 154 172 C122 144 100 138 100 138 C100 138 78 144 46 172 C58 124 68 92 100 24 Z%22/><path fill=%22%23000000%22 d=%22M100 58 C120 104 126 128 132 156 C114 140 100 136 100 136 C100 136 86 140 68 156 C74 128 80 104 100 58 Z%22/></svg>');
-  --cover-opacity: 0.16;
-}
-body.theme-startrek .card, body.theme-startrek .login-card,
-body.theme-startrek .btn-sm, body.theme-startrek .btn-upload, body.theme-startrek button.save {
-  border-radius: 16px !important;
-}
-body.theme-startrek .btn-sm.save, body.theme-startrek .btn-upload, body.theme-startrek button.save, body.theme-startrek #btn-run-analysis {
-  color:#111 !important;
-}
-
-/* Michigan Tech — Husky black & gold */
-body.theme-mtu {
-  --bg:#111111; --surface:#232323; --surface2:#333333; --border:#000000;
-  --text:#f2f2f2; --muted:#c9bd86; --accent:#ffcd00; --accent2:#b79a00;
-  --success:#6ab04c; --danger:#cc4433;
-  --font-ui: system-ui, -apple-system, sans-serif;
-  /* Michigan Tech cover art — Husky paw print */
-  --cover-art: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 200%22><ellipse cx=%22100%22 cy=%22132%22 rx=%2246%22 ry=%2236%22 fill=%22%23ffcd00%22/><circle cx=%2254%22 cy=%2296%22 r=%2218%22 fill=%22%23ffcd00%22/><circle cx=%2285%22 cy=%2270%22 r=%2218%22 fill=%22%23ffcd00%22/><circle cx=%22118%22 cy=%2270%22 r=%2218%22 fill=%22%23ffcd00%22/><circle cx=%22148%22 cy=%2296%22 r=%2218%22 fill=%22%23ffcd00%22/></svg>');
-  --cover-opacity: 0.14;
-}
-body.theme-mtu .btn-sm.save, body.theme-mtu .btn-upload, body.theme-mtu button.save, body.theme-mtu #btn-run-analysis {
-  color:#111 !important;
-}
-
-/* Denver Nuggets — Midnight Blue & Sunshine Gold, Skyline Blue accent */
-body.theme-nuggets {
-  --bg:#0e2240; --surface:#12294d; --surface2:#1c3560; --border:#418fde;
-  --text:#f2f6ff; --muted:#9fb6d8; --accent:#fec524; --accent2:#418fde;
-  --success:#5bb26e; --danger:#c8453b;
-  --font-ui: system-ui, -apple-system, sans-serif;
-  /* Denver Nuggets cover art — a gold basketball */
-  --cover-art: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 200%22><circle cx=%22100%22 cy=%22100%22 r=%2270%22 fill=%22none%22 stroke=%22%23fec524%22 stroke-width=%226%22/><line x1=%2230%22 y1=%22100%22 x2=%22170%22 y2=%22100%22 stroke=%22%23fec524%22 stroke-width=%225%22/><line x1=%22100%22 y1=%2230%22 x2=%22100%22 y2=%22170%22 stroke=%22%23fec524%22 stroke-width=%225%22/><path d=%22M100 30 C60 60 60 140 100 170%22 fill=%22none%22 stroke=%22%23fec524%22 stroke-width=%225%22/><path d=%22M100 30 C140 60 140 140 100 170%22 fill=%22none%22 stroke=%22%23fec524%22 stroke-width=%225%22/></svg>');
-  --cover-opacity: 0.16;
-}
-body.theme-nuggets .btn-sm.save, body.theme-nuggets .btn-upload, body.theme-nuggets button.save, body.theme-nuggets #btn-run-analysis {
-  color:#0e2240 !important;
-}
-
-/* Praying Mantis — deep foliage green with bright leaf-green accent */
-body.theme-mantis {
-  --bg:#10241a; --surface:#153021; --surface2:#1e4030; --border:#3f8f4f;
-  --text:#e8ffe8; --muted:#9fceac; --accent:#8ede5a; --accent2:#c9a227;
-  --success:#5bb26e; --danger:#d0574a;
-  --font-ui: system-ui, -apple-system, sans-serif;
-  /* Praying Mantis cover art — a green mantis in its praying pose */
-  --cover-art: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 200%22><path fill=%22%238ede5a%22 d=%22M96 58 C112 70 150 120 128 170 C123 178 116 176 114 168 C132 122 100 78 88 64 Z%22/><ellipse cx=%2292%22 cy=%2252%22 rx=%2210%22 ry=%227%22 fill=%22%238ede5a%22/><circle cx=%2286%22 cy=%2249%22 r=%223%22 fill=%22%2310241a%22/><path d=%22M90 45 C80 32 74 24 66 16%22 stroke=%22%238ede5a%22 stroke-width=%223%22 fill=%22none%22 stroke-linecap=%22round%22/><path d=%22M96 46 C90 30 88 22 84 12%22 stroke=%22%238ede5a%22 stroke-width=%223%22 fill=%22none%22 stroke-linecap=%22round%22/><path d=%22M96 66 C66 56 52 74 66 92 C58 78 78 74 90 82%22 stroke=%22%238ede5a%22 stroke-width=%225%22 fill=%22none%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/><path d=%22M104 78 C74 70 60 90 74 108 C66 92 86 88 98 96%22 stroke=%22%238ede5a%22 stroke-width=%225%22 fill=%22none%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/><path d=%22M116 96 C140 104 150 124 152 142%22 stroke=%22%238ede5a%22 stroke-width=%223%22 fill=%22none%22 stroke-linecap=%22round%22/><path d=%22M120 118 C142 128 150 146 150 164%22 stroke=%22%238ede5a%22 stroke-width=%223%22 fill=%22none%22 stroke-linecap=%22round%22/><path d=%22M112 140 C130 150 136 162 136 176%22 stroke=%22%238ede5a%22 stroke-width=%223%22 fill=%22none%22 stroke-linecap=%22round%22/></svg>');
-  --cover-opacity: 0.16;
-}
-body.theme-mantis .btn-sm.save, body.theme-mantis .btn-upload, body.theme-mantis button.save, body.theme-mantis #btn-run-analysis {
-  color:#10241a !important;
-}
+/* ══ BRAND THEMES ═══════════════════════════════════════ */
 
 /* Wipro — corporate light: deep aubergine primary with the rainbow-dot mark */
 body.theme-wipro {
@@ -626,12 +530,6 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
     <option value="wipro">Theme: Wipro</option>
     <option value="accenture">Theme: Accenture</option>
     <option value="ahead">Theme: AHEAD</option>
-    <option value="minecraft">Theme: Minecraft</option>
-    <option value="starwars">Theme: Star Wars</option>
-    <option value="startrek">Theme: Star Trek</option>
-    <option value="mtu">Theme: Michigan Tech</option>
-    <option value="nuggets">Theme: Denver Nuggets</option>
-    <option value="mantis">Theme: Praying Mantis</option>
   </select>
   <div id="user-pill">
     <span id="user-name"></span>
@@ -7057,38 +6955,8 @@ function resetGuiToDefaults(delayMs) {
     wipro: { cls: "theme-wipro", prefix: "" },
     accenture: { cls: "theme-accenture", prefix: "" },
     ahead: { cls: "theme-ahead", prefix: "" },
-    minecraft: {
-      cls: "theme-minecraft", prefix: "⛏ ",
-      tabs: { "tab-login":"Join World","tab-jsondata":"Redstone Config","tab-customers":"Villages","tab-s3upload":"Ender Chest","tab-results":"Loot Table","tab-tco":"Trading Hall","tab-logout":"Leave World" },
-      labels: { "run-analysis-label":"Craft TCO","btn-login":"⛏ Join Server","btn-tco-evaluate":"Enchant","btn-add-customer":"Found Village" },
-    },
-    starwars: {
-      cls: "theme-starwars", prefix: "★ ",
-      tabs: { "tab-login":"Access Terminal","tab-jsondata":"Datacron","tab-customers":"Systems","tab-s3upload":"Cargo Hold","tab-results":"Holocron","tab-tco":"Battle Plans","tab-logout":"Disengage" },
-      labels: { "run-analysis-label":"Engage Hyperdrive","btn-login":"Access","btn-tco-evaluate":"Use the Force","btn-add-customer":"Add System" },
-    },
-    startrek: {
-      cls: "theme-startrek", prefix: "🖖 ",
-      tabs: { "tab-login":"Authenticate","tab-jsondata":"Config Banks","tab-customers":"Federation","tab-s3upload":"Transporter","tab-results":"Sensor Logs","tab-tco":"Tactical Analysis","tab-logout":"Beam Out" },
-      labels: { "run-analysis-label":"Engage","btn-login":"Authenticate","btn-tco-evaluate":"Run Scan","btn-add-customer":"Add Member" },
-    },
-    mtu: {
-      cls: "theme-mtu", prefix: "🐺 ",
-      tabs: { "tab-login":"Husky Login","tab-jsondata":"Config","tab-customers":"Chapters","tab-s3upload":"Upload","tab-results":"Results","tab-tco":"Tech Review","tab-logout":"Graduate" },
-      labels: { "run-analysis-label":"Calculate","btn-login":"Go Huskies","btn-tco-evaluate":"Evaluate","btn-add-customer":"Add Chapter" },
-    },
-    nuggets: {
-      cls: "theme-nuggets", prefix: "🏀 ",
-      tabs: { "tab-login":"Tip-Off","tab-jsondata":"Playbook","tab-customers":"Roster","tab-s3upload":"Locker Room","tab-results":"Box Score","tab-tco":"Scouting Report","tab-logout":"Final Buzzer" },
-      labels: { "run-analysis-label":"Run the Play","btn-login":"🏀 Tip-Off","btn-tco-evaluate":"Fast Break","btn-add-customer":"Sign Player" },
-    },
-    mantis: {
-      cls: "theme-mantis", prefix: "🦗 ",
-      tabs: { "tab-login":"Camouflage","tab-jsondata":"Instincts","tab-customers":"Prey","tab-s3upload":"Egg Sac","tab-results":"The Hunt","tab-tco":"Ambush Plan","tab-logout":"Molt" },
-      labels: { "run-analysis-label":"Strike","btn-login":"🦗 Camouflage","btn-tco-evaluate":"Ambush","btn-add-customer":"Spot Prey" },
-    },
   };
-  const ALL_CLASSES = ["theme-wipro", "theme-accenture", "theme-ahead", "theme-minecraft", "theme-starwars", "theme-startrek", "theme-mtu", "theme-nuggets", "theme-mantis"];
+  const ALL_CLASSES = ["theme-wipro", "theme-accenture", "theme-ahead"];
 
   function firstText(el) {
     if (!el) return null;
