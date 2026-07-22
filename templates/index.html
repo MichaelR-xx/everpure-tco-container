@@ -5121,7 +5121,10 @@ function resetGuiToDefaults(delayMs) {
       const adjLicense = num(r["Y1 PSC Lic $"]) * (1 - (s.eDisc || 0)) * (1 + (s.margin || 0));
       const infra      = num(r["Y1 PSC Res $"]);
       const adjAzure   = num(r["Y1 Azure Native $"]) * (1 - (s.aDisc || 0));
-      const rate = adjAzure ? (adjAzure - (adjLicense + infra)) / adjAzure : 0;
+      // When Azure cost is 0, savings = -(everpure); a negative-savings group must
+      // get a negative rate so it is excluded at Min Savings = 0 (not defaulted to 0).
+      const sav0 = adjAzure - (adjLicense + infra);
+      const rate = adjAzure ? sav0 / adjAzure : (sav0 < 0 ? -1 : 0);
       const regionOk = !selRegions.size || selRegions.has(String(r["Region"]));
       if (s.includeAll ? true : (rate >= (s.minSav || 0) && regionOk)) set.add(String(r["desc"]));
     });
@@ -5511,7 +5514,9 @@ function resetGuiToDefaults(delayMs) {
       const everpureTotal = adjLicense + infra;
       const adjAzure      = azure0 * (1 - aDisc);
       const savings       = adjAzure - everpureTotal;
-      const rate          = adjAzure ? savings / adjAzure : 0;
+      // Azure cost 0 -> savings = -(everpure); a negative-savings group must get a
+      // negative rate so Min Savings = 0 excludes it (don't default to 0 = "included").
+      const rate          = adjAzure ? savings / adjAzure : (savings < 0 ? -1 : 0);
       const regionOk = !selRegions.size || selRegions.has(String(r["Region"]));
       // A follower inherits the primary's group set; otherwise "All" overrides every
       // filter, else apply min-savings AND region.
