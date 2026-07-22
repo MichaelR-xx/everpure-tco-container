@@ -2045,6 +2045,25 @@ def _compute_detail_metrics(df, cfg_data):
     df["total_cost"] = pd.to_numeric(df["total_cost"], errors="coerce")
     metrics["total_cost"] = round(float(df["total_cost"].sum()), 2)
     metrics["cost_column"] = "total_cost"
+    # Azure cost breakdown: capacity, performance (provisioned IOPS + throughput), and
+    # snapshots. The per-disk components are stored at parse time; sum them here so the
+    # Results view can show how the Azure cost splits. Guarded for safety.
+    def _col_sum(name):
+        return round(float(pd.to_numeric(df[name], errors="coerce").fillna(0).sum()), 2)
+    metrics["capacity_cost"] = _col_sum("cap_cost") if "cap_cost" in df.columns else None
+    if {"iops_cost", "mbps_cost"}.issubset(df.columns):
+        metrics["performance_cost"] = round(
+            float((pd.to_numeric(df["iops_cost"], errors="coerce").fillna(0)
+                   + pd.to_numeric(df["mbps_cost"], errors="coerce").fillna(0)).sum()), 2)
+    else:
+        metrics["performance_cost"] = None
+    metrics["snapshot_cost"] = _col_sum("snap_cost") if "snap_cost" in df.columns else None
+    # Parse-time snapshot rate baked into this dataset (fraction). Shown on selection and
+    # used to pre-fill the analysis slider. Defaults to main2's historical 0.1.
+    try:
+        metrics["parsed_snapshot_rate"] = float((cfg_data or {}).get("monthly_snapshot_rate", 0.1))
+    except (TypeError, ValueError):
+        metrics["parsed_snapshot_rate"] = 0.1
     metrics["num_groups"] = int(df["group_id"].nunique())
     if no_region_flag:
         metrics["region_breakdown"] = []
@@ -2520,6 +2539,32 @@ def results_run_analysis():
         return jsonify({"error": f"AWS error fetching config: {exc.response['Error']['Message']}"}), 500
     except Exception as exc:
         return jsonify({"error": f"Error fetching config: {exc}"}), 500
+
+    # ── 2.a. Snapshot-rate override: adjust the Azure baseline for the analysis ──
+    # The per-disk Azure snapshot cost was baked in at parse time using the dataset's
+    # parse-time rate (r0). If the analysis specifies a different monthly_snapshot_rate,
+    # rescale snap_cost and re-sum total_cost so the Azure baseline reflects the new rate.
+    # snap_cost is linear in the factor ((rate/2)+1) (and 0 at rate 0), and
+    # total_cost == cap_cost + iops_cost + mbps_cost + snap_cost holds exactly, so the
+    # rescale is exact. Affects both engines, which read df_parsed["total_cost"].
+    try:
+        r0 = float(source_data_config.get("monthly_snapshot_rate", 0.1))
+    except (TypeError, ValueError):
+        r0 = 0.1
+    try:
+        new_rate = float(params.get("monthly_snapshot_rate", r0))
+    except (TypeError, ValueError):
+        new_rate = r0
+    _cost_cols = {"cap_cost", "iops_cost", "mbps_cost", "snap_cost", "total_cost"}
+    if new_rate != r0 and _cost_cols.issubset(df_parsed.columns):
+        for _c in _cost_cols:
+            df_parsed[_c] = pd.to_numeric(df_parsed[_c], errors="coerce").fillna(0)
+        old_factor = (r0 / 2) + 1                       # >= 1 for r0 >= 0, safe divisor
+        new_factor = 0.0 if new_rate == 0 else (new_rate / 2) + 1
+        snap_unit = df_parsed["snap_cost"] / old_factor  # snap_cost at factor 1
+        df_parsed["snap_cost"] = snap_unit * new_factor
+        df_parsed["total_cost"] = (df_parsed["cap_cost"] + df_parsed["iops_cost"]
+                                   + df_parsed["mbps_cost"] + df_parsed["snap_cost"])
 
     # ── 2.b. Fetch azure_manage_disk_cost.csv ───────────────────────────────────
     try:
@@ -3632,6 +3677,15 @@ def mapping_parse():
             except (TypeError, ValueError):
                 pass
         config["searchable_columns"] = sorted(set(idxs))
+    # Monthly snapshot rate chosen on the Parse Data page (fraction, 0..1). Baked into
+    # the per-disk Azure cost at parse time (main2 -> calc_true_cost_azure) and persisted
+    # in source_data_config.json so it is shown on selection and used as the analysis
+    # default. Defaults to 0.1 (10%), matching main2's historical default.
+    try:
+        snap_rate = float(body.get("monthly_snapshot_rate", 0.1))
+    except (TypeError, ValueError):
+        snap_rate = 0.1
+    config["monthly_snapshot_rate"] = max(0.0, min(1.0, snap_rate))
     session["json_config"] = config
     try:
         results = read_file_s3(upload_prefix)
@@ -7137,6 +7191,10 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
     consider_iops       = not ignore_iops
     consider_throughput = bool(params.get("consider_throughput", True))
     growth_rate  = float(params.get("growth", 0.2) or 0)
+    # Monthly snapshot rate uplifts the effective (licensed/billed) capacity, mirroring
+    # the Dedicated engine (tco_by_group_y1): licensed capacity = eff_cap * (1 + rate/2).
+    # rate == 0 -> factor 1.0 (no snapshot capacity).
+    snap_rate    = float(params.get("monthly_snapshot_rate", 0.0) or 0.0)
 
     if not ecan_config:
         print("Azure Native: ecan_config is empty — cannot size arrays or price capacity.")
@@ -7248,7 +7306,9 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
         num_compute = _gsum(g, compute_col)
         azure_native = _gsum(g, "total_cost")
 
-        eff_cap = orig_cap * efficiency
+        # Effective capacity includes the snapshot uplift (1 + snap_rate/2), matching
+        # the Dedicated engine so the snapshot-rate control affects Azure Native too.
+        eff_cap = orig_cap * efficiency * (1 + snap_rate / 2)
         # Minimum billable capacity: any group below minimum_capacity is billed at
         # minimum_capacity, and flagged so the condition is visible in the results.
         min_cap_applied = eff_cap < minimum_capacity
