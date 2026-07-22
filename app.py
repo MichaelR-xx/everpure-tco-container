@@ -5978,6 +5978,21 @@ def main2(event,df_all):
             df_csv["min_ec_model"] = min_ec_model
         df_csv["mode"] = "LRS"
         df_csv["group_id"] = 0
+        # Upsize zero/negative/missing-size disks to the minimum disk size for their type
+        # (bad source data), so they are treated as a smallest-valid disk everywhere —
+        # Azure cost, Everpure capacity, and capacity metrics — instead of pricing to $0.
+        # Unsupported types get no minimum (stay 0) and are removed by the cost step below.
+        _ds  = pd.to_numeric(df_csv[disk_size], errors="coerce").fillna(0)
+        _dtl = df_csv[disk_type].astype(str).str.lower()
+        _zero = _ds <= 0
+        if _zero.any():
+            _min = pd.Series(0.0, index=df_csv.index)
+            _min = _min.mask(_dtl.str.contains("standard", na=False), 32)    # Standard HDD S4
+            _min = _min.mask(_dtl.str.contains("standardssd", na=False), 4)  # StandardSSD E1 (overrides)
+            _min = _min.mask(_dtl.str.contains("premium", na=False), 4)      # Premium P1
+            _min = _min.mask(_dtl.str.contains("premiumv2", na=False), 1)    # Premium SSD v2 min (overrides)
+            _min = _min.mask(_dtl.str.contains("ultra", na=False), 4)        # Ultra min
+            df_csv.loc[_zero, disk_size] = _min[_zero]
         _price_lookup_cache.clear()   # fresh cache per parse (pricing is refetched each run)
         df_csv[["total_cost",
                 "cap_cost",
@@ -5988,6 +6003,13 @@ def main2(event,df_all):
                 "paid_capacity",
                 iops,
                 mbps]] = df_csv.apply(calc_true_cost_azure, axis=1, azure_pricing=azure_pricing, )
+        # Remove disks the cost engine can't price — unsupported/invalid disk type, or
+        # a size beyond the largest supported tier — flagged mode == "remove". They are
+        # dropped here so they never form a group or show as $0-cost rows.
+        _removed = int((df_csv["mode"] == "remove").sum())
+        if _removed:
+            print(f"parse: removed {_removed} disk(s) with unsupported type or unpriceable size")
+            df_csv = df_csv[df_csv["mode"] != "remove"].copy()
 
     if az_mapping_flag:
         df_csv[["true_az", a_name]] = df_csv.apply(calc_true_az, axis=1)
