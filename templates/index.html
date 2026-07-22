@@ -170,7 +170,32 @@ body::before {
 }
 
 .login-card .lc-header { text-align: center; }
-.login-card .lc-logo { font-size: 2.4rem; margin-bottom: 12px; }
+.login-card .lc-logo { margin-bottom: 16px; }
+/* Login hero: Azure logo → animated data flow → active-theme logo. */
+.lc-flow { display:flex; align-items:center; justify-content:center; gap:4px; }
+.lc-mark { width:56px; height:56px; flex:0 0 auto; display:flex; align-items:center; justify-content:center; }
+.lc-mark svg { width:100%; height:100%; display:block; }
+.lc-theme { width:56px; height:56px; flex:0 0 auto;
+  background:var(--cover-art) center/contain no-repeat; }
+.lc-cap { font-size:.58rem; font-weight:700; text-transform:uppercase; letter-spacing:.1em;
+  color:var(--muted); margin-top:6px; }
+.lc-wire { position:relative; width:88px; height:56px; flex:0 0 auto; }
+.lc-wire::before { content:""; position:absolute; top:50%; left:4px; right:4px; height:2px;
+  transform:translateY(-50%); border-radius:2px;
+  background:linear-gradient(90deg, color-mix(in srgb,var(--accent) 25%,transparent),
+                                     color-mix(in srgb,var(--accent) 65%,transparent)); }
+.lc-wire .pkt { position:absolute; top:50%; width:8px; height:8px; margin-top:-4px;
+  border-radius:50%; background:var(--accent); box-shadow:0 0 8px var(--accent);
+  animation:lc-flow 1.8s linear infinite; }
+.lc-wire .pkt:nth-child(2) { animation-delay:.6s; }
+.lc-wire .pkt:nth-child(3) { animation-delay:1.2s; }
+@keyframes lc-flow {
+  0%   { left:2px;  opacity:0; transform:scale(.5); }
+  12%  { opacity:1; }
+  88%  { opacity:1; }
+  100% { left:78px; opacity:0; transform:scale(.5); }
+}
+@media (prefers-reduced-motion: reduce) { .lc-wire .pkt { animation:none; opacity:.85; left:40px; } }
 .login-card h2 { font-size: 1.3rem; font-weight: 700; letter-spacing: .02em; }
 .login-card .lc-sub { font-size: .8rem; color: var(--muted); margin-top: 4px; }
 
@@ -570,7 +595,32 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
   <div class="tab-pane active" id="pane-login">
     <div class="login-card">
       <div class="lc-header">
-        <div class="lc-logo">💧</div>
+        <div class="lc-logo">
+          <div class="lc-flow">
+            <div style="display:flex;flex-direction:column;align-items:center;">
+              <span class="lc-mark" title="Microsoft Azure Managed Disks">
+                <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Microsoft Azure">
+                  <defs>
+                    <linearGradient id="lc-azg" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0" stop-color="#0078D4"/>
+                      <stop offset="1" stop-color="#33BFF0"/>
+                    </linearGradient>
+                  </defs>
+                  <path d="M50 14 L86 86 H60 L50 62 L40 86 H14 Z" fill="url(#lc-azg)"/>
+                  <path d="M50 14 L64 42 H44 Z" fill="#0063B1"/>
+                </svg>
+              </span>
+              <span class="lc-cap">Azure</span>
+            </div>
+            <span class="lc-wire" aria-hidden="true">
+              <i class="pkt"></i><i class="pkt"></i><i class="pkt"></i>
+            </span>
+            <div style="display:flex;flex-direction:column;align-items:center;">
+              <span class="lc-theme" role="img" aria-label="Everpure"></span>
+              <span class="lc-cap" id="lc-theme-cap">Everpure</span>
+            </div>
+          </div>
+        </div>
         <h2 id="login-title">Everpure Azure Disk Viz</h2>
         <p class="lc-sub" id="login-subtitle">Sign in to access your managed disk data and analysis</p>
       </div>
@@ -7546,6 +7596,10 @@ function resetGuiToDefaults(delayMs) {
     if (brandEl) brandEl.textContent = co;
     if (tailEl)  tailEl.textContent  = tail;
     if (loginEl) loginEl.textContent = co + " " + tail;
+    const themeCapEl = document.getElementById("lc-theme-cap");   // login hero theme-logo caption
+    const themeLogoEl = document.querySelector(".lc-theme");
+    if (themeCapEl) themeCapEl.textContent = co;
+    if (themeLogoEl) themeLogoEl.setAttribute("aria-label", co);
     if (t.tabs)   for (const id in t.tabs)   reword(document.getElementById(id), t.tabs[id], true);
     if (t.labels) for (const id in t.labels) reword(document.getElementById(id), t.labels[id], false);
     if (t.prefix) document.querySelectorAll(".page-heading h2").forEach(h => {
