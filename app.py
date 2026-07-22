@@ -7100,6 +7100,17 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
             azure_native = cs.get("Y1 Azure Native Cost", 0)
             save_ratio = (savings / azure_native) if azure_native else 0
 
+            # Azure Managed Disk cost breakdown for this group (from the parsed data:
+            # capacity, performance = provisioned IOPS + throughput, and snapshots).
+            def _grp_cost_sum(col):
+                if col in df_parsed.columns:
+                    return float(pd.to_numeric(df_parsed.loc[df_parsed["group_id"] == g, col],
+                                               errors="coerce").fillna(0).sum())
+                return 0.0
+            azure_md_cap  = _grp_cost_sum("cap_cost")
+            azure_md_perf = _grp_cost_sum("iops_cost") + _grp_cost_sum("mbps_cost")
+            azure_md_snap = _grp_cost_sum("snap_cost")
+
             group_rows.append({
                 "desc": g,
                 "Region": row["region"],
@@ -7113,6 +7124,9 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                 "Y1 PSC Res $": row["ec_tot_cost"] - row["license_cost"],
                 "Y1 PSC Tot $": row["ec_tot_cost"],
                 "Y1 Azure Native $": row["azure_native_cost"],
+                "Y1 Azure MD Capacity $": azure_md_cap,
+                "Y1 Azure MD Performance $": azure_md_perf,
+                "Y1 Azure MD Snapshots $": azure_md_snap,
                 "Y1 PSC Licensed Capacity": row["ec_capacity_size"],
                 "Y1 PSC Array Count": row["number_of_arrays"],
                 "Azure Paid Capacity": orig_cap,
@@ -7369,6 +7383,11 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
             "Y1 PSC Res $": 0,                # no infrastructure cost in Azure Native
             "Y1 PSC Tot $": everpure_total,
             "Y1 Azure Native $": azure_native,
+            # Azure Managed Disk cost breakdown (from parsed data): capacity,
+            # performance (provisioned IOPS + throughput), and snapshots.
+            "Y1 Azure MD Capacity $": _gsum(g, "cap_cost"),
+            "Y1 Azure MD Performance $": _gsum(g, "iops_cost") + _gsum(g, "mbps_cost"),
+            "Y1 Azure MD Snapshots $": _gsum(g, "snap_cost"),
             "Y1 PSC Licensed Capacity": billed_cap,
             "Y1 PSC Array Count": num_arrays,
             "Azure Paid Capacity": orig_cap,

@@ -5434,6 +5434,14 @@ function resetGuiToDefaults(delayMs) {
         numCompute: num(r["Num Compute"]), numVolumes: num(r["Num Volumes"]), arrayCount: num(r["Y1 PSC Array Count"]),
         minCap: r["Min Capacity Applied"],   // Azure Native only ("Yes"/"No"); undefined otherwise
         adjAzure, adjLicense, infra, everpureTotal, savings, rate, included,
+        // Azure Managed Disk cost breakdown (discounted like the total so parts sum
+        // to Azure MD Total). hasMd=false for older runs lacking these columns.
+        azCap:  num(r["Y1 Azure MD Capacity $"])    * (1 - aDisc),
+        azPerf: num(r["Y1 Azure MD Performance $"]) * (1 - aDisc),
+        azSnap: num(r["Y1 Azure MD Snapshots $"])   * (1 - aDisc),
+        hasMd: (r["Y1 Azure MD Capacity $"] !== undefined
+                || r["Y1 Azure MD Performance $"] !== undefined
+                || r["Y1 Azure MD Snapshots $"] !== undefined),
       };
     });
     const incl = computed.filter(c => c.included);
@@ -5448,7 +5456,11 @@ function resetGuiToDefaults(delayMs) {
       infra:    a.infra    + c.infra,
       everpure: a.everpure + c.everpureTotal,
       azure:    a.azure    + c.adjAzure,
-    }), { license: 0, infra: 0, everpure: 0, azure: 0 });
+      azCap:    a.azCap    + c.azCap,
+      azPerf:   a.azPerf   + c.azPerf,
+      azSnap:   a.azSnap   + c.azSnap,
+    }), { license: 0, infra: 0, everpure: 0, azure: 0, azCap: 0, azPerf: 0, azSnap: 0 });
+    tot.hasMd = incl.some(c => c.hasMd);
     tot.savings = tot.azure - tot.everpure;
     tot.rate    = tot.azure ? tot.savings / tot.azure : 0;
     // Blended $/GiB/month rates (monthly cost ÷ capacity), across included groups.
@@ -5538,7 +5550,8 @@ function resetGuiToDefaults(delayMs) {
     const head = ["Group","Region","Account","Availability Zone","VNet","SKU",
                   "VMs","Volumes","Arrays","Original Cap (GiB)","EC Lic Cap (GiB)",
                   ...(showMinCap ? ["Min Cap"] : []),
-                  "Mig Month","Azure Native $","Everpure Lic $","Everpure Infra $","Everpure Total $",
+                  "Mig Month","Azure MD Total $","Azure MD Capacity $","Azure MD Performance $","Azure MD Snapshots $",
+                  "Everpure Lic $","Everpure Infra $","Everpure Total $",
                   "Azure $/GiB (orig)","EP $/GiB (orig)","EP $/GiB (lic)",
                   "Savings $","Savings %","Included"];
     const rows = [head.map(esc).join(",")];
@@ -5550,7 +5563,9 @@ function resetGuiToDefaults(delayMs) {
         Math.round(num(c.origCap)), Math.round(num(c.licCap)),
         ...(showMinCap ? [String(c.minCap) === "Yes" ? "Yes" : "No"] : []),
         migMonth != null ? migMonth : "",
-        Math.round(c.adjAzure * m), Math.round(c.adjLicense * m), Math.round(c.infra * m),
+        Math.round(c.adjAzure * m),
+        c.hasMd ? Math.round(c.azCap * m) : "", c.hasMd ? Math.round(c.azPerf * m) : "", c.hasMd ? Math.round(c.azSnap * m) : "",
+        Math.round(c.adjLicense * m), Math.round(c.infra * m),
         Math.round(c.everpureTotal * m),
         perGib(c.adjAzure, c.origCap), perGib(c.everpureTotal, c.origCap), perGib(c.everpureTotal, c.licCap),
         Math.round(c.savings * m),
@@ -5571,7 +5586,9 @@ function resetGuiToDefaults(delayMs) {
       Math.round(capOrig), Math.round(capLic),
       ...(showMinCap ? [""] : []),
       "",
-      Math.round(t.azure * m), Math.round(t.license * m), Math.round(t.infra * m), Math.round(t.everpure * m),
+      Math.round(t.azure * m),
+      t.hasMd ? Math.round(t.azCap * m) : "", t.hasMd ? Math.round(t.azPerf * m) : "", t.hasMd ? Math.round(t.azSnap * m) : "",
+      Math.round(t.license * m), Math.round(t.infra * m), Math.round(t.everpure * m),
       perGib(t.azure, capOrig), perGib(t.everpure, capOrig), perGib(t.everpure, capLic),
       Math.round(t.savings * m),
       (t.rate * 100).toFixed(1) + "%", "",
@@ -6220,7 +6237,8 @@ function resetGuiToDefaults(delayMs) {
     const showMinCap = computed.some(c => c.minCap !== undefined && c.minCap !== null && c.minCap !== "");
     const head = ["Group","Region","Account","Avail. Zone","VNet","SKU","VMs","Volumes","Arrays","Original Cap (GiB)","EC Lic Cap (GiB)",
                   ...(showMinCap ? ["Min Cap"] : []),
-                  "Mig Month","Azure Native $","Everpure Lic $","Everpure Infra $","Everpure Total $",
+                  "Mig Month","Azure MD Total $","Azure MD Capacity $","Azure MD Performance $","Azure MD Snapshots $",
+                  "Everpure Lic $","Everpure Infra $","Everpure Total $",
                   "Azure $/GiB (orig)","EP $/GiB (orig)","EP $/GiB (lic)","Savings $","Savings %","Incl."];
     const td = (v, extra) => `<td style="padding:7px 10px;border-bottom:1px solid var(--border);${extra || ""}">${v}</td>`;
     const mono = "font-family:var(--font-mono);";
@@ -6281,6 +6299,9 @@ function resetGuiToDefaults(delayMs) {
         ${showMinCap ? td(String(c.minCap) === "Yes" ? "⚠ Yes" : "No", String(c.minCap) === "Yes" ? "color:var(--warning,#d97706);font-weight:700;" : "color:var(--muted);") : ""}
         ${td(migMonth != null ? migMonth : "—", mono)}
         ${td(fmtUsd(c.adjAzure * months), mono)}
+        ${td(c.hasMd ? fmtUsd(c.azCap * months) : "—", mono + "color:var(--warning);")}
+        ${td(c.hasMd ? fmtUsd(c.azPerf * months) : "—", mono + "color:var(--accent2);")}
+        ${td(c.hasMd ? fmtUsd(c.azSnap * months) : "—", mono)}
         ${td(fmtUsd(c.adjLicense * months), mono)}
         ${td(fmtUsd(c.infra * months), mono)}
         ${td(fmtUsd(c.everpureTotal * months), mono)}
@@ -6311,6 +6332,9 @@ function resetGuiToDefaults(delayMs) {
         ${showMinCap ? tf("") : ""}
         ${tf("")}
         ${tf(fmtUsd(tot.azure * months), mono)}
+        ${tf(tot.hasMd ? fmtUsd(tot.azCap * months) : "—", mono + "color:var(--warning);")}
+        ${tf(tot.hasMd ? fmtUsd(tot.azPerf * months) : "—", mono + "color:var(--accent2);")}
+        ${tf(tot.hasMd ? fmtUsd(tot.azSnap * months) : "—", mono)}
         ${tf(fmtUsd(tot.license * months), mono)}
         ${tf(fmtUsd(tot.infra * months), mono)}
         ${tf(fmtUsd(tot.everpure * months), mono)}
