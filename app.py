@@ -6027,7 +6027,8 @@ def main2(event,df_all):
         # etc.) to a boolean while honoring "false"/"False" as not-an-OS-disk.
         _osv = df_csv[root_flag]
         _s = _osv.astype(str).str.strip().str.lower()
-        df_csv[root_flag] = _osv.notna() & _s.ne("") & _s.ne("nan") & _s.ne("false")
+        _non_os = ("", "nan", "null", "false")   # data-disk indicators
+        df_csv[root_flag] = _osv.notna() & ~_s.isin(_non_os)
         # print("tree 02")
     elif no_root_flag_flag:  # Only disk usage flag or device flag
         df_csv[root_flag] = df_csv.apply(convert_disk_usage_to_root_flag, axis=1)
