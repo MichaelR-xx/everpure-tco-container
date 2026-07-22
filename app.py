@@ -618,6 +618,7 @@ def _adjusted_parsed_for_tco(group_summary_key):
     df = pd.read_csv(StringIO(text), on_bad_lines="warn")
     df.columns = [c.replace("pscd", "ec") if isinstance(c, str) else c for c in df.columns]
     # Parse-time rate (r0) from the dataset config; analysis rate from the run's meta.
+    cfg = {}
     try:
         cfg = json.loads(s3.get_object(Bucket=s3_bucket, Key=cfg_key)["Body"].read().decode("utf-8")) or {}
         r0 = float(cfg.get("monthly_snapshot_rate", 0.1))
@@ -637,7 +638,7 @@ def _adjusted_parsed_for_tco(group_summary_key):
         snap_unit = df["snap_cost"] / old_factor
         df["snap_cost"] = snap_unit * new_factor
         df["total_cost"] = (df["cap_cost"] + df["iops_cost"] + df["mbps_cost"] + df["snap_cost"])
-    return df, tco_rate
+    return df, tco_rate, cfg
 
 
 @app.route("/api/tco/parsed-group", methods=["POST"])
@@ -655,7 +656,7 @@ def tco_parsed_group():
     if not group:
         return jsonify({"error": "A group is required."}), 400
     try:
-        df, tco_rate = _adjusted_parsed_for_tco(key)
+        df, tco_rate, cfg = _adjusted_parsed_for_tco(key)
     except ClientError as exc:
         code = exc.response["Error"]["Code"]
         if code in ("404", "NoSuchKey"):
@@ -665,16 +666,49 @@ def tco_parsed_group():
         return jsonify({"error": str(exc)}), 500
     if "group_id" not in df.columns:
         return jsonify({"error": "parsed data has no group_id column."}), 400
-    sub = df[df["group_id"].astype(str) == group]
-    total = int(len(sub))
+    full = df[df["group_id"].astype(str) == group]
+    total = int(len(full))
+
+    # ── Per-group summary: identity attributes + capacity + all cost values ──
+    col_names = df.columns.tolist()
+    def _attr(field):
+        try:
+            idx = int(cfg.get(field, -99))
+        except (TypeError, ValueError):
+            idx = -99
+        if not (0 <= idx < len(col_names)) or col_names[idx] not in full.columns:
+            return "—"
+        vals = [v for v in full[col_names[idx]].dropna().unique().tolist()]
+        if not vals:
+            return "—"
+        return str(vals[0]) if len(vals) == 1 else f"mixed ({len(vals)})"
+    def _sum(col):
+        return round(float(pd.to_numeric(full[col], errors="coerce").fillna(0).sum()), 2) if col in full.columns else None
+    cap_col_idx = cfg.get("disk_size", -99)
+    cap_col = col_names[cap_col_idx] if isinstance(cap_col_idx, int) and 0 <= cap_col_idx < len(col_names) else None
+    perf = None
+    if "iops_cost" in full.columns and "mbps_cost" in full.columns:
+        perf = round(float((pd.to_numeric(full["iops_cost"], errors="coerce").fillna(0)
+                            + pd.to_numeric(full["mbps_cost"], errors="coerce").fillna(0)).sum()), 2)
+    summary = {
+        "region": _attr("region"), "zone": _attr("zone"),
+        "subscription": _attr("subscription_or_account_id"), "vnet": _attr("vnet_or_vpc"),
+        "volume_count": total,
+        "capacity_gib": (round(float(pd.to_numeric(full[cap_col], errors="coerce").fillna(0).sum()), 2)
+                         if cap_col and cap_col in full.columns else None),
+        "total_cost": _sum("total_cost"), "capacity_cost": _sum("cap_cost"),
+        "performance_cost": perf, "snapshot_cost": _sum("snap_cost"),
+    }
+
     LIMIT = 1000
-    sub = sub.head(LIMIT)
+    sub = full.head(LIMIT).copy()
     # Round cost columns for display and make the frame JSON-safe (NaN -> None).
     for c in ("total_cost", "cap_cost", "iops_cost", "mbps_cost", "snap_cost", "paid_capacity"):
         if c in sub.columns:
             sub[c] = pd.to_numeric(sub[c], errors="coerce").round(4)
     safe = sub.astype(object).where(pd.notnull(sub), None)
     return jsonify({"ok": True, "group": group, "snapshot_rate": tco_rate,
+                    "diag_marker": "SUMV2", "summary": summary,
                     "columns": list(sub.columns), "rows": safe.to_dict(orient="records"),
                     "row_count": total, "truncated": total > LIMIT})
 
@@ -691,7 +725,7 @@ def tco_parsed_download():
     if not key.endswith("group_summary.csv") or "/tco/" not in key:
         return jsonify({"error": "A valid group_summary_key is required."}), 400
     try:
-        df, tco_rate = _adjusted_parsed_for_tco(key)
+        df, tco_rate, _cfg = _adjusted_parsed_for_tco(key)
     except ClientError as exc:
         code = exc.response["Error"]["Code"]
         if code in ("404", "NoSuchKey"):
@@ -4597,6 +4631,31 @@ def get_ec_size_n_cost_data(regions, customer, directory, ec):
         return df_ec_pricing
 
 
+# Per-parse cache for Azure retail-price lookups. calc_true_cost_azure is applied
+# per disk row; without caching it re-scans the entire pricing frame for each of a
+# dataset's (up to tens of thousands of) rows. The same (region, meter/sku) combo
+# recurs constantly, so caching the unique-price result collapses ~4 full-frame
+# scans/row down to one scan per distinct combo. Cleared at the start of each parse.
+_price_lookup_cache = {}
+
+
+def _cup(azure_pricing, conds):
+    """Cached unique retailPrice lookup for a set of {column: value} equality
+    filters. Returns the same numpy array as azure_pricing.loc[mask, 'retailPrice']
+    .unique() — results are identical to the pre-cache code, only faster."""
+    key = tuple(sorted((k, str(v)) for k, v in conds.items()))
+    cached = _price_lookup_cache.get(key)
+    if cached is not None:
+        return cached
+    mask = None
+    for col, val in conds.items():
+        m = azure_pricing[col] == val
+        mask = m if mask is None else (mask & m)
+    res = azure_pricing.loc[mask, "retailPrice"].unique()
+    _price_lookup_cache[key] = res
+    return res
+
+
 def calc_true_cost_azure(row, azure_pricing):
     global iops
     global mbps
@@ -4640,10 +4699,9 @@ def calc_true_cost_azure(row, azure_pricing):
             mbps_val = 1
         else:
             mbps_val = int(row[mbps])
-        lrs_snapshots = azure_pricing.loc[(azure_pricing[region_col_name] == region_name) &
-                                          (azure_pricing[product_name] == hdd_product_name) &
-                                          (azure_pricing[
-                                               sku_col_name] == lrs_snapshot_sku_name), retail_price_col_name].unique()
+        lrs_snapshots = _cup(azure_pricing, {region_col_name: region_name,
+                                             product_name: hdd_product_name,
+                                             sku_col_name: lrs_snapshot_sku_name})
         lrs_snapshot_price = 0.018
         if len(lrs_snapshots) == 1:
             lrs_snapshot_price = lrs_snapshots[0]
@@ -4657,9 +4715,7 @@ def calc_true_cost_azure(row, azure_pricing):
         cap_meter = "Ultra LRS Provisioned Capacity"
         iops_meter = "Ultra LRS Provisioned IOPS"
         bw_meter = "Ultra LRS Provisioned Throughput (MBps)"
-        capacity_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[meter_col_name] == cap_meter), retail_price_col_name].unique()
+        capacity_prices = _cup(azure_pricing, {region_col_name: region_name, meter_col_name: cap_meter})
         eligible_sizes = [num for num in base_2_sizes if num >= disk_size_val]
         # print(eligible_sizes)
         # If the filtered list is not empty, return the maximum value
@@ -4673,18 +4729,14 @@ def calc_true_cost_azure(row, azure_pricing):
         else:
             #print(f"multiple or no capacity prices {capacity_prices} for {region_name} - {cap_meter}")
             capacity_price = 0
-        iops_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[meter_col_name] == iops_meter), retail_price_col_name].unique()
+        iops_prices = _cup(azure_pricing, {region_col_name: region_name, meter_col_name: iops_meter})
         #    print(f"iops prices {iops_prices}")
         iops_price = 0
         if len(iops_prices) == 1:
             iops_price = float(iops_prices[0]) * (iops_val - 0) * hours_per_month
         else:
             print(f"multiple or no iops prices {iops_prices} for {region_name} - {iops_meter}")
-        bw_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[meter_col_name] == bw_meter), retail_price_col_name].unique()
+        bw_prices = _cup(azure_pricing, {region_col_name: region_name, meter_col_name: bw_meter})
         #    print(disk_type_name)
         #    print(f"capacity prices {capacity_prices}")
         #    print(f"iops prices {iops_prices}")
@@ -4709,10 +4761,9 @@ def calc_true_cost_azure(row, azure_pricing):
         iops_val = 500
         mbps_val = 100
 
-        lrs_snapshots = azure_pricing.loc[(azure_pricing[region_col_name] == region_name) &
-                                          (azure_pricing[product_name] == hdd_product_name) &
-                                          (azure_pricing[
-                                               sku_col_name] == lrs_snapshot_sku_name), retail_price_col_name].unique()
+        lrs_snapshots = _cup(azure_pricing, {region_col_name: region_name,
+                                             product_name: hdd_product_name,
+                                             sku_col_name: lrs_snapshot_sku_name})
         lrs_snapshot_price = 0.018
         if len(lrs_snapshots) == 1:
             lrs_snapshot_price = lrs_snapshots[0]
@@ -4776,9 +4827,7 @@ def calc_true_cost_azure(row, azure_pricing):
             return pd.Series(
                 {"total_cost": 0, "cap_cost": 0, "iops_cost": 0, "mbps_cost": 0, "snap_cost": 0, "mode": "remove",
                  "paid_capacity": 0, iops: iops_val, mbps: mbps_val})
-        capacity_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[sku_col_name] == size_class), retail_price_col_name].unique()
+        capacity_prices = _cup(azure_pricing, {region_col_name: region_name, sku_col_name: size_class})
         if len(capacity_prices) == 1:
             capacity_price = capacity_prices[0]
         else:
@@ -4801,10 +4850,9 @@ def calc_true_cost_azure(row, azure_pricing):
     elif "standard" in disk_type_name.lower():
         iops_val = 500
         mbps_val = 60
-        lrs_snapshots = azure_pricing.loc[(azure_pricing[region_col_name] == region_name) &
-                                          (azure_pricing[product_name] == hdd_product_name) &
-                                          (azure_pricing[
-                                               sku_col_name] == lrs_snapshot_sku_name), retail_price_col_name].unique()
+        lrs_snapshots = _cup(azure_pricing, {region_col_name: region_name,
+                                             product_name: hdd_product_name,
+                                             sku_col_name: lrs_snapshot_sku_name})
         lrs_snapshot_price = 0.018
         if len(lrs_snapshots) == 1:
             lrs_snapshot_price = lrs_snapshots[0]
@@ -4859,9 +4907,7 @@ def calc_true_cost_azure(row, azure_pricing):
             return pd.Series(
                 {"total_cost": 0, "cap_cost": 0, "iops_cost": 0, "mbps_cost": 0, "snap_cost": 0, "mode": "remove",
                  "paid_capacity": 0, iops: iops_val, mbps: mbps_val})
-        capacity_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[sku_col_name] == size_class), retail_price_col_name].unique()
+        capacity_prices = _cup(azure_pricing, {region_col_name: region_name, sku_col_name: size_class})
         if len(capacity_prices) == 1:
             capacity_price = capacity_prices[0]
         else:
@@ -4891,10 +4937,9 @@ def calc_true_cost_azure(row, azure_pricing):
             mbps_val = 125
         else:
             mbps_val = int(row[mbps])
-        lrs_snapshots = azure_pricing.loc[(azure_pricing[region_col_name] == region_name) &
-                                          (azure_pricing[product_name] == hdd_product_name) &
-                                          (azure_pricing[
-                                               sku_col_name] == lrs_snapshot_sku_name), retail_price_col_name].unique()
+        lrs_snapshots = _cup(azure_pricing, {region_col_name: region_name,
+                                             product_name: hdd_product_name,
+                                             sku_col_name: lrs_snapshot_sku_name})
         lrs_snapshot_price = 0.018
         if len(lrs_snapshots) == 1:
             lrs_snapshot_price = lrs_snapshots[0]
@@ -4907,17 +4952,13 @@ def calc_true_cost_azure(row, azure_pricing):
         cap_meter = "Premium LRS Provisioned Capacity"
         iops_meter = "Premium LRS Provisioned IOPS"
         bw_meter = "Premium LRS Provisioned Throughput (MBps)"
-        capacity_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[meter_col_name] == cap_meter), retail_price_col_name].unique()
+        capacity_prices = _cup(azure_pricing, {region_col_name: region_name, meter_col_name: cap_meter})
         if len(capacity_prices) == 1:
             capacity_price = float(capacity_prices[0]) * disk_size_val * hours_per_month
         else:
             print(f"multiple or no capacity prices {capacity_prices} for {region_name} - {cap_meter}")
             capacity_price = 0
-        iops_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[meter_col_name] == iops_meter), retail_price_col_name].unique()
+        iops_prices = _cup(azure_pricing, {region_col_name: region_name, meter_col_name: iops_meter})
         iops_price = 0
         if len(iops_prices) == 1:
             if iops_val > 3000:
@@ -4925,9 +4966,7 @@ def calc_true_cost_azure(row, azure_pricing):
                 iops_price = float(iops_prices[0]) * (iops_val - 3000) * hours_per_month
         else:
             print(f"multiple or no iops prices {iops_prices} for {region_name} - {iops_meter}")
-        bw_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[meter_col_name] == bw_meter), retail_price_col_name].unique()
+        bw_prices = _cup(azure_pricing, {region_col_name: region_name, meter_col_name: bw_meter})
         bw_price = 0
         if len(bw_prices) == 1:
             if mbps_val > 125:
@@ -4951,10 +4990,9 @@ def calc_true_cost_azure(row, azure_pricing):
         iops_val = 120
         mbps_val = 25
 
-        lrs_snapshots = azure_pricing.loc[(azure_pricing[region_col_name] == region_name) &
-                                          (azure_pricing[product_name] == hdd_product_name) &
-                                          (azure_pricing[
-                                               sku_col_name] == lrs_snapshot_sku_name), retail_price_col_name].unique()
+        lrs_snapshots = _cup(azure_pricing, {region_col_name: region_name,
+                                             product_name: hdd_product_name,
+                                             sku_col_name: lrs_snapshot_sku_name})
         lrs_snapshot_price = 0.018
         if len(lrs_snapshots) == 1:
             lrs_snapshot_price = lrs_snapshots[0]
@@ -5034,9 +5072,7 @@ def calc_true_cost_azure(row, azure_pricing):
                 {"total_cost": 0, "cap_cost": 0, "iops_cost": 0, "mbps_cost": 0, "snap_cost": 0, "mode": "remove",
                  "paid_capacity": 0, iops: iops_val, mbps: mbps_val})
         #    print(f"size {size_class}")
-        capacity_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[sku_col_name] == size_class), retail_price_col_name].unique()
+        capacity_prices = _cup(azure_pricing, {region_col_name: region_name, sku_col_name: size_class})
         if len(capacity_prices) == 1:
             capacity_price = capacity_prices[0]
         else:
@@ -5942,6 +5978,7 @@ def main2(event,df_all):
             df_csv["min_ec_model"] = min_ec_model
         df_csv["mode"] = "LRS"
         df_csv["group_id"] = 0
+        _price_lookup_cache.clear()   # fresh cache per parse (pricing is refetched each run)
         df_csv[["total_cost",
                 "cap_cost",
                 "iops_cost",
