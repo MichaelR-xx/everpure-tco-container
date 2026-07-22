@@ -6021,7 +6021,12 @@ def main2(event,df_all):
         df_csv[root_flag] = False
         # print("tree 01")
     elif no_disk_usage_flag and no_device_flag:  # Only Root flag is set
-        df_csv[root_flag] = df_csv[root_flag].fillna(False)  # no other action required
+        # Any non-null / non-empty value in the OS-disk column marks an OS disk
+        # (root_flag = True); null/blank means a data disk (False). This normalizes
+        # varied source encodings ("True", "OS", an OS name, etc.) to a boolean.
+        _osv = df_csv[root_flag]
+        df_csv[root_flag] = _osv.notna() & (_osv.astype(str).str.strip().ne("")) \
+                            & (_osv.astype(str).str.strip().str.lower().ne("nan"))
         # print("tree 02")
     elif no_root_flag_flag:  # Only disk usage flag or device flag
         df_csv[root_flag] = df_csv.apply(convert_disk_usage_to_root_flag, axis=1)
