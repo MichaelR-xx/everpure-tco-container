@@ -1817,6 +1817,8 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
                 <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
                   <button class="tco-view-btn active" data-view="data"
                     style="padding:8px 20px;background:var(--accent);border:none;color:#fff;font-size:.78rem;font-weight:700;cursor:pointer;">Data</button>
+                  <button class="tco-view-btn" data-view="parsed"
+                    style="padding:8px 20px;background:var(--surface2);border:none;border-left:1px solid var(--border);color:var(--muted);font-size:.78rem;font-weight:700;cursor:pointer;">Parsed Data</button>
                   <button class="tco-view-btn" data-view="graphs"
                     style="padding:8px 20px;background:var(--surface2);border:none;border-left:1px solid var(--border);color:var(--muted);font-size:.78rem;font-weight:700;cursor:pointer;">Graphs</button>
                   <button class="tco-view-btn" data-view="migration"
@@ -1841,6 +1843,22 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
             <div id="tco-view-data" style="display:flex;flex-direction:column;gap:20px;">
               <div class="card" style="padding:16px 20px;">
                 <div id="tco-data-area"></div>
+              </div>
+            </div>
+
+            <!-- ── PARSED DATA VIEW: per-disk parsed rows for one group ── -->
+            <div id="tco-view-parsed" style="display:none;flex-direction:column;gap:20px;">
+              <div class="card" style="padding:16px 20px;">
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+                  <label style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Group</label>
+                  <select id="tco-parsed-group" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.8rem;padding:6px 12px;outline:none;font-family:var(--font-ui);cursor:pointer;min-width:220px;">
+                    <option value="">— select a group —</option>
+                  </select>
+                  <span id="tco-parsed-snaprate" style="font-size:.72rem;color:var(--muted);"></span>
+                  <button class="btn-sm save" id="btn-tco-parsed-download" style="margin-left:auto;padding:7px 14px;white-space:nowrap;">⬇ Download included groups (CSV)</button>
+                </div>
+                <div style="font-size:.66rem;color:var(--muted);margin-bottom:8px;">Per-disk parsed rows for the selected group, with Azure costs (<code>total_cost</code>/<code>snap_cost</code>) recomputed at the snapshot rate this TCO was generated with. Download exports the parsed rows for every group included in the summary, at the same snapshot rate.</div>
+                <div id="tco-parsed-area"><div style="padding:18px;color:var(--muted);font-size:.82rem;">Select a group to view its parsed data.</div></div>
               </div>
             </div>
 
@@ -6534,14 +6552,17 @@ function resetGuiToDefaults(delayMs) {
       b.style.color      = on ? "#fff" : "var(--muted)";
     });
     $("tco-view-data").style.display      = (mode === "data")      ? "flex" : "none";
+    $("tco-view-parsed").style.display    = (mode === "parsed")    ? "flex" : "none";
     $("tco-view-graphs").style.display    = (mode === "graphs")    ? "flex" : "none";
     $("tco-view-migration").style.display = (mode === "migration") ? "flex" : "none";
     $("tco-view-advanced").style.display  = (mode === "advanced")  ? "flex" : "none";
     $("tco-view-downloads").style.display = (mode === "downloads") ? "flex" : "none";
     $("tco-view-consolidation").style.display = (mode === "consolidation") ? "flex" : "none";
-    // The per-view download button applies only to Data/Graphs/Advanced.
-    $("btn-tco-view-download").style.display = (mode === "downloads" || mode === "migration" || mode === "consolidation") ? "none" : "";
+    // The generic per-view download button applies to Data/Graphs/Advanced only
+    // (Parsed Data has its own included-groups download button).
+    $("btn-tco-view-download").style.display = (mode === "downloads" || mode === "migration" || mode === "consolidation" || mode === "parsed") ? "none" : "";
     $("btn-tco-view-download").textContent = (mode === "graphs") ? "⬇ Download PDF" : "⬇ Download CSV";
+    if (mode === "parsed") populateParsedGroups();
     if (mode === "advanced") loadDfGroups();
     if (mode === "downloads") loadDownloads();
     if (mode === "migration") { renderMigrationControls(); loadMigrationPlans(); }
@@ -6553,6 +6574,87 @@ function resetGuiToDefaults(delayMs) {
   document.querySelectorAll(".tco-view-btn").forEach(btn => {
     btn.addEventListener("click", () => applyView(btn.dataset.view));
   });
+
+  // ── PARSED DATA view ───────────────────────────────────────────────────────
+  // Per-disk parsed rows for a single group, with Azure costs recomputed at the
+  // snapshot rate the selected TCO was generated with. Default: no group selected.
+  function populateParsedGroups() {
+    const sel = $("tco-parsed-group");
+    if (!sel) return;
+    const prev = sel.value;
+    const groups = (lastComputed || []).slice().sort((a, b) => b.rate - a.rate);
+    sel.innerHTML = '<option value="">— select a group —</option>' +
+      groups.map(c => `<option value="${escHtml(String(c.group))}">${escHtml(String(c.group))}${c.included ? "" : " (excluded)"}</option>`).join("");
+    sel.value = (prev && groups.some(c => String(c.group) === prev)) ? prev : "";
+    const r = (selectedRun && selectedRun.params) ? selectedRun.params.monthly_snapshot_rate : null;
+    $("tco-parsed-snaprate").textContent = (r != null) ? `Snapshot rate: ${Math.round(num(r) * 100)}%` : "";
+    if (sel.value) loadParsedGroup(sel.value);
+    else $("tco-parsed-area").innerHTML = `<div style="padding:18px;color:var(--muted);font-size:.82rem;">Select a group to view its parsed data.</div>`;
+  }
+
+  async function loadParsedGroup(group) {
+    if (!selectedRun || !group) return;
+    const area = $("tco-parsed-area");
+    area.innerHTML = `<div style="padding:18px;color:var(--muted);font-size:.82rem;">Loading…</div>`;
+    try {
+      const res = await fetch("/api/tco/parsed-group", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_summary_key: selectedRun.group_summary_key, group }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load parsed data.");
+      renderParsedGroup(data);
+    } catch (e) {
+      area.innerHTML = `<div style="padding:18px;color:var(--danger);font-size:.82rem;">${escHtml(e.message)}</div>`;
+    }
+  }
+
+  function renderParsedGroup(data) {
+    const area = $("tco-parsed-area");
+    const cols = data.columns || [];
+    const rows = data.rows || [];
+    if (!rows.length) { area.innerHTML = `<div style="padding:18px;color:var(--muted);font-size:.82rem;">No rows for this group.</div>`; return; }
+    const costCols = ["total_cost", "cap_cost", "iops_cost", "mbps_cost", "snap_cost"];
+    const money = new Set(costCols);
+    const ordered = [...cols.filter(c => !costCols.includes(c)), ...costCols.filter(c => cols.includes(c))];
+    const th = h => `<th style="text-align:left;padding:7px 10px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">${escHtml(h)}</th>`;
+    const cell = (c, v) => (v === null || v === undefined || v === "") ? "—" : (money.has(c) ? fmtUsd(num(v)) : escHtml(String(v)));
+    let html = `<div style="font-size:.66rem;color:var(--muted);margin-bottom:8px;">Group <strong>${escHtml(String(data.group))}</strong> — ${(data.row_count || 0).toLocaleString()} disk row${data.row_count === 1 ? "" : "s"}${data.truncated ? ` (showing first ${rows.length.toLocaleString()})` : ""} · costs at snapshot rate ${Math.round((data.snapshot_rate || 0) * 100)}%</div>`;
+    html += `<div style="overflow-x:scroll;"><table style="width:100%;min-width:800px;border-collapse:collapse;font-size:.72rem;"><thead><tr>${ordered.map(th).join("")}</tr></thead><tbody>`;
+    rows.forEach(r => {
+      html += `<tr>${ordered.map(c => `<td style="padding:6px 10px;border-bottom:1px solid var(--border);${money.has(c) ? "font-family:var(--font-mono);" : ""}white-space:nowrap;">${cell(c, r[c])}</td>`).join("")}</tr>`;
+    });
+    html += `</tbody></table></div>`;
+    area.innerHTML = html;
+  }
+
+  async function downloadParsedIncluded() {
+    if (!selectedRun) { showMsgs(detailMsgs, ["Select a TCO run first."], "error"); return; }
+    const incl = (lastComputed || []).filter(c => c.included).map(c => String(c.group));
+    if (!incl.length) { showMsgs(detailMsgs, ["No groups are included in the summary."], "error"); return; }
+    try {
+      const res = await fetch("/api/tco/parsed-download", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_summary_key: selectedRun.group_summary_key, groups: incl }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Download failed."); }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `parsed_included_${selectedRun.scenario || "tco"}_${selectedRun.tco_id || "run"}.csv`.replace(/[^\w.\-]+/g, "_");
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    } catch (e) {
+      showMsgs(detailMsgs, ["Download error: " + e.message], "error");
+    }
+  }
+
+  $("tco-parsed-group").addEventListener("change", (e) => {
+    const g = e.target.value;
+    if (g) loadParsedGroup(g);
+    else $("tco-parsed-area").innerHTML = `<div style="padding:18px;color:var(--muted);font-size:.82rem;">Select a group to view its parsed data.</div>`;
+  });
+  $("btn-tco-parsed-download").addEventListener("click", downloadParsedIncluded);
 
   // ── CONSOLIDATION view ─────────────────────────────────────────────────────
   // Fold negative-savings groups into positive ones, re-run the TCO on the new

@@ -599,6 +599,116 @@ def tco_list():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
+def _adjusted_parsed_for_tco(group_summary_key):
+    """Load the parsed_data.csv behind a TCO run and rescale snap_cost/total_cost to the
+    snapshot rate that TCO was generated with (from its meta.json params), so the parsed
+    rows reflect the exact Azure costs that TCO used. Returns (df, tco_rate).
+
+    The parsed dataset lives at the run's dataset dir (the path before '/tco/'); the
+    snapshot rate the analysis used is in the run's meta.json. snap_cost is linear in
+    ((rate/2)+1) and total_cost == cap+iops+mbps+snap, so the rescale is exact.
+    """
+    global s3_bucket
+    base       = group_summary_key.split("/tco/")[0]      # dataset results dir
+    parsed_key = f"{base}/parsed_data.csv"
+    cfg_key    = f"{base}/source_data_config.json"
+    meta_key   = group_summary_key.replace("group_summary.csv", "meta.json")
+    s3 = _s3_client()
+    text = s3.get_object(Bucket=s3_bucket, Key=parsed_key)["Body"].read().decode("utf-8")
+    df = pd.read_csv(StringIO(text), on_bad_lines="warn")
+    df.columns = [c.replace("pscd", "ec") if isinstance(c, str) else c for c in df.columns]
+    # Parse-time rate (r0) from the dataset config; analysis rate from the run's meta.
+    try:
+        cfg = json.loads(s3.get_object(Bucket=s3_bucket, Key=cfg_key)["Body"].read().decode("utf-8")) or {}
+        r0 = float(cfg.get("monthly_snapshot_rate", 0.1))
+    except Exception:
+        r0 = 0.1
+    try:
+        meta = json.loads(s3.get_object(Bucket=s3_bucket, Key=meta_key)["Body"].read().decode("utf-8")) or {}
+        tco_rate = float((meta.get("params") or {}).get("monthly_snapshot_rate", r0))
+    except Exception:
+        tco_rate = r0
+    cost_cols = {"cap_cost", "iops_cost", "mbps_cost", "snap_cost", "total_cost"}
+    if tco_rate != r0 and cost_cols.issubset(df.columns):
+        for c in cost_cols:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+        old_factor = (r0 / 2) + 1
+        new_factor = 0.0 if tco_rate == 0 else (tco_rate / 2) + 1
+        snap_unit = df["snap_cost"] / old_factor
+        df["snap_cost"] = snap_unit * new_factor
+        df["total_cost"] = (df["cap_cost"] + df["iops_cost"] + df["mbps_cost"] + df["snap_cost"])
+    return df, tco_rate
+
+
+@app.route("/api/tco/parsed-group", methods=["POST"])
+@login_required
+def tco_parsed_group():
+    """Return the parsed data rows for ONE group of a TCO run, with snap_cost/total_cost
+    adjusted to the snapshot rate that TCO was generated with. Powers the TCO Review
+    'Parsed Data' view (the user picks a group; default is none)."""
+    global s3_bucket
+    body  = request.get_json(force=True) or {}
+    key   = str(body.get("group_summary_key", "")).strip()
+    group = str(body.get("group", "")).strip()
+    if not key.endswith("group_summary.csv") or "/tco/" not in key:
+        return jsonify({"error": "A valid group_summary_key is required."}), 400
+    if not group:
+        return jsonify({"error": "A group is required."}), 400
+    try:
+        df, tco_rate = _adjusted_parsed_for_tco(key)
+    except ClientError as exc:
+        code = exc.response["Error"]["Code"]
+        if code in ("404", "NoSuchKey"):
+            return jsonify({"error": "parsed_data.csv not found for this TCO."}), 404
+        return jsonify({"error": f"AWS error: {exc.response['Error']['Message']}"}), 500
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    if "group_id" not in df.columns:
+        return jsonify({"error": "parsed data has no group_id column."}), 400
+    sub = df[df["group_id"].astype(str) == group]
+    total = int(len(sub))
+    LIMIT = 1000
+    sub = sub.head(LIMIT)
+    # Round cost columns for display and make the frame JSON-safe (NaN -> None).
+    for c in ("total_cost", "cap_cost", "iops_cost", "mbps_cost", "snap_cost", "paid_capacity"):
+        if c in sub.columns:
+            sub[c] = pd.to_numeric(sub[c], errors="coerce").round(4)
+    safe = sub.astype(object).where(pd.notnull(sub), None)
+    return jsonify({"ok": True, "group": group, "snapshot_rate": tco_rate,
+                    "columns": list(sub.columns), "rows": safe.to_dict(orient="records"),
+                    "row_count": total, "truncated": total > LIMIT})
+
+
+@app.route("/api/tco/parsed-download", methods=["POST"])
+@login_required
+def tco_parsed_download():
+    """Download the parsed data for the groups INCLUDED in a TCO's summary, with
+    snap_cost/total_cost adjusted to the snapshot rate that TCO was generated with."""
+    global s3_bucket
+    body   = request.get_json(force=True) or {}
+    key    = str(body.get("group_summary_key", "")).strip()
+    groups = body.get("groups")
+    if not key.endswith("group_summary.csv") or "/tco/" not in key:
+        return jsonify({"error": "A valid group_summary_key is required."}), 400
+    try:
+        df, tco_rate = _adjusted_parsed_for_tco(key)
+    except ClientError as exc:
+        code = exc.response["Error"]["Code"]
+        if code in ("404", "NoSuchKey"):
+            return jsonify({"error": "parsed_data.csv not found for this TCO."}), 404
+        return jsonify({"error": f"AWS error: {exc.response['Error']['Message']}"}), 500
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    if isinstance(groups, list) and groups and "group_id" in df.columns:
+        gset = {str(g) for g in groups}
+        df = df[df["group_id"].astype(str).isin(gset)]
+    scenario = key.split("/")[3] if len(key.split("/")) > 3 else "tco"
+    tco_id   = key.split("/tco/")[1].split("/")[0] if "/tco/" in key else "run"
+    fname = f"parsed_included_{scenario}_{tco_id}.csv".replace(" ", "_")
+    return Response(df.to_csv(index=False).encode("utf-8"), mimetype="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
 @app.route("/api/tco/delete", methods=["POST"])
 @login_required
 def tco_delete():
