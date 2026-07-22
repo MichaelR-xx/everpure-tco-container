@@ -7407,7 +7407,13 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
     #    ignored for array count and every array is billed at the largest tier.
     ignore_iops         = bool(params.get("ignore_iops_provisioned", False))
     consider_iops       = not ignore_iops
-    consider_throughput = bool(params.get("consider_throughput", True))
+    # Throughput handling: "on" (size arrays to MBps), "off" (ignore MBps for sizing,
+    # bill every array at the largest tier), or "optimized" (per group, use whichever
+    # of on/off yields the lower cost). Falls back to the legacy consider_throughput
+    # bool for older callers.
+    throughput_mode = str(params.get("throughput_mode", "")).strip().lower()
+    if throughput_mode not in ("on", "off", "optimized"):
+        throughput_mode = "on" if bool(params.get("consider_throughput", True)) else "off"
     growth_rate  = float(params.get("growth", 0.2) or 0)
     # Monthly snapshot rate uplifts the effective (licensed/billed) capacity, mirroring
     # the Dedicated engine (tco_by_group_y1): licensed capacity = eff_cap * (1 + rate/2).
@@ -7545,30 +7551,41 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
         cap_per_array  = max_raw * est_drr
         arrays_by_cap  = max(1, math.ceil(billed_cap / cap_per_array)) if cap_per_array > 0 else 1
 
-        # Array count: capacity always counts; IOPS and throughput count only when
-        # their respective toggles are on.
-        drivers = [arrays_by_cap]
-        if consider_iops:       drivers.append(arrays_by_iops)
-        if consider_throughput: drivers.append(arrays_by_mbps)
-        num_arrays = max(drivers)
+        # Size this group for a given throughput treatment. Capacity always drives
+        # arrays; IOPS when considered; MBps only when use_thr. When use_thr is False,
+        # every array is billed at the largest MBps tier (worst case); when True, each
+        # array is sized to the smallest tier covering its right-sized load.
+        def _size_group(use_thr):
+            drivers = [arrays_by_cap]
+            if consider_iops: drivers.append(arrays_by_iops)
+            if use_thr:       drivers.append(arrays_by_mbps)
+            n = max(drivers)
+            if not use_thr:
+                ambps = max_tier_mbps
+            else:
+                per_array_iops = eff_iops / n if n else 0
+                per_array_mbps = eff_mbps / n if n else 0
+                ambps = max_tier_mbps
+                for m, i in tiers:
+                    if m >= per_array_mbps and (not consider_iops or i >= per_array_iops):
+                        ambps = m
+                        break
+            return n, ambps, n * ambps * per_mbps_cost
 
-        if not consider_throughput:
-            # Throughput ignored for sizing — bill every array at the largest
-            # (default) MBps tier.
-            array_mbps = max_tier_mbps
+        if throughput_mode == "optimized":
+            # Per group: pick whichever treatment costs less (capacity cost is the
+            # same either way, so this is min throughput cost).
+            on_n, on_m, on_t   = _size_group(True)
+            off_n, off_m, off_t = _size_group(False)
+            if off_t < on_t:
+                num_arrays, array_mbps, throughput_cost, thr_choice = off_n, off_m, off_t, "off"
+            else:
+                num_arrays, array_mbps, throughput_cost, thr_choice = on_n, on_m, on_t, "on"
         else:
-            # Per-array MBps: smallest tier whose MBps (and IOPS, if considered)
-            # covers the per-array right-sized load; fall back to the largest tier.
-            per_array_iops = eff_iops / num_arrays if num_arrays else 0
-            per_array_mbps = eff_mbps / num_arrays if num_arrays else 0
-            array_mbps = max_tier_mbps
-            for m, i in tiers:
-                if m >= per_array_mbps and (not consider_iops or i >= per_array_iops):
-                    array_mbps = m
-                    break
+            num_arrays, array_mbps, throughput_cost = _size_group(throughput_mode == "on")
+            thr_choice = throughput_mode
 
         capacity_cost   = billed_cap * cap_rate
-        throughput_cost = num_arrays * array_mbps * per_mbps_cost
         everpure_total  = capacity_cost + throughput_cost
 
         savings    = azure_native - everpure_total
@@ -7599,6 +7616,7 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
             "Num Volumes": int((df_parsed["group_id"] == g).sum()),
             "Y1 Capacity $": capacity_cost,
             "Y1 Throughput $": throughput_cost,
+            "Throughput Mode": thr_choice,   # "on"/"off" actually used (for optimized, the winner)
             "Min Capacity Applied": "Yes" if min_cap_applied else "No",
         })
 
@@ -7629,7 +7647,7 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
             "overprovisioned_iops_rate": op_iops_rate, "overprovisioned_mbps_rate": op_mbps_rate,
             "arrays_by_iops": arrays_by_iops, "arrays_by_mbps": arrays_by_mbps,
             "arrays_by_cap": arrays_by_cap,
-            "consider_iops": bool(consider_iops), "consider_throughput": bool(consider_throughput),
+            "consider_iops": bool(consider_iops), "throughput_mode": throughput_mode, "throughput_choice": thr_choice,
             "drr": drr, "estimated_drr": est_drr, "efficiency": efficiency,
             "original_capacity": orig_cap, "effective_capacity": round(eff_cap, 2),
             "min_capacity_applied": bool(min_cap_applied),

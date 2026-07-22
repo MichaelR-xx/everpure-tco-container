@@ -1235,7 +1235,12 @@ body.theme-ahead #btn-login { color:#0b0d0a !important; }
                   style="padding:8px 20px;background:var(--surface2);border:none;border-left:1px solid var(--border);color:var(--muted);font-size:.78rem;font-weight:700;cursor:pointer;transition:background .15s,color .15s;">
                   Off
                 </button>
+                <button class="thr-btn" data-thr="optimized"
+                  style="padding:8px 20px;background:var(--surface2);border:none;border-left:1px solid var(--border);color:var(--muted);font-size:.78rem;font-weight:700;cursor:pointer;transition:background .15s,color .15s;" title="Per group, use whichever of On/Off yields the lower cost.">
+                  Optimized
+                </button>
               </div>
+              <div style="font-size:.6rem;color:var(--muted);">Optimized: choose On/Off per group, whichever costs less.</div>
             </div>
 
             <!-- Years to evaluate -->
@@ -4615,7 +4620,8 @@ function resetGuiToDefaults(delayMs) {
       default_sku_model:   activeSku,
       initial_cap_rate:    parseFloat(document.getElementById("param-initsize").value) / 100,
       ignore_iops_provisioned: iopsMode === "off",
-      consider_throughput: throughputMode === "on",   // Azure Native: include MBps in array sizing
+      consider_throughput: throughputMode === "on",   // Azure Native: include MBps in array sizing (legacy bool)
+      throughput_mode: throughputMode,                 // "on" | "off" | "optimized" (per-group cost-min)
       efficiency:          parseFloat(document.getElementById("param-efficiency").value) / 100,
       // ── Advanced configuration ──
       price_mode:                      document.getElementById("param-price-mode").value,
@@ -6619,7 +6625,31 @@ function resetGuiToDefaults(delayMs) {
     const ordered = [...cols.filter(c => !costCols.includes(c)), ...costCols.filter(c => cols.includes(c))];
     const th = h => `<th style="text-align:left;padding:7px 10px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">${escHtml(h)}</th>`;
     const cell = (c, v) => (v === null || v === undefined || v === "") ? "—" : (money.has(c) ? fmtUsd(num(v)) : escHtml(String(v)));
-    let html = `<div style="font-size:.66rem;color:var(--muted);margin-bottom:8px;">Group <strong>${escHtml(String(data.group))}</strong> — ${(data.row_count || 0).toLocaleString()} disk row${data.row_count === 1 ? "" : "s"}${data.truncated ? ` (showing first ${rows.length.toLocaleString()})` : ""} · costs at snapshot rate ${Math.round((data.snapshot_rate || 0) * 100)}%</div>`;
+    let html = "";
+    const s = data.summary;
+    if (s) {
+      const item = (label, val) => `<div style="display:flex;flex-direction:column;gap:2px;">
+        <span style="font-size:.58rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">${escHtml(label)}</span>
+        <span style="font-size:.9rem;font-weight:700;font-family:var(--font-mono);color:var(--text);">${val}</span></div>`;
+      const usd = v => (v === null || v === undefined) ? "—" : "$" + num(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+      const gib = v => (v === null || v === undefined) ? "—" : num(v).toLocaleString(undefined,{maximumFractionDigits:1}) + " GiB";
+      html += `<div class="card" style="padding:14px 16px;margin-bottom:14px;">
+        <div style="font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:10px;">Group ${escHtml(String(data.group))} — summary <span style="text-transform:none;letter-spacing:0;font-weight:400;">(Azure MD costs at snapshot rate ${Math.round((data.snapshot_rate || 0) * 100)}%)</span></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:14px 18px;">
+          ${item("Region", escHtml(String(s.region)))}
+          ${item("Zone", escHtml(String(s.zone)))}
+          ${item("Subscription", escHtml(String(s.subscription)))}
+          ${item("VNet", escHtml(String(s.vnet)))}
+          ${item("Volumes", (s.volume_count||0).toLocaleString())}
+          ${item("Capacity", gib(s.capacity_gib))}
+          ${item("Azure MD Total", `<span style="color:var(--success,#7ab87a);">${usd(s.total_cost)}</span>`)}
+          ${item("Capacity Cost", `<span style="color:var(--warning);">${usd(s.capacity_cost)}</span>`)}
+          ${item("Performance Cost", `<span style="color:var(--accent2);">${usd(s.performance_cost)}</span>`)}
+          ${item("Snapshot Cost", `<span style="color:var(--accent);">${usd(s.snapshot_cost)}</span>`)}
+        </div>
+      </div>`;
+    }
+    html += `<div style="font-size:.66rem;color:var(--muted);margin-bottom:8px;">Per-disk rows — ${(data.row_count || 0).toLocaleString()} disk row${data.row_count === 1 ? "" : "s"}${data.truncated ? ` (showing first ${rows.length.toLocaleString()})` : ""}.</div>`;
     html += `<div style="overflow-x:scroll;"><table style="width:100%;min-width:800px;border-collapse:collapse;font-size:.72rem;"><thead><tr>${ordered.map(th).join("")}</tr></thead><tbody>`;
     rows.forEach(r => {
       html += `<tr>${ordered.map(c => `<td style="padding:6px 10px;border-bottom:1px solid var(--border);${money.has(c) ? "font-family:var(--font-mono);" : ""}white-space:nowrap;">${cell(c, r[c])}</td>`).join("")}</tr>`;
