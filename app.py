@@ -6039,6 +6039,16 @@ def main2(event,df_all):
     account_name_list = df_csv[a_name].unique()
     # print(f"account list {account_name_list}")
     compute_count = 0
+    # Precompute every VM's usage aggregates in a SINGLE pass. Previously the group
+    # loops ran a full df.apply(calc_compute_usage) once per VM (O(VMs x rows) — the
+    # dominant cost for large inventories); now the loop just reads vm_data_all[cp].
+    df_csv[compute] = df_csv[compute].fillna("not_given")
+    vm_data_all = {}
+    if count_compute_flag:
+        df_csv.apply(calc_compute_usage_all, axis=1, vm_data=vm_data_all,
+                     compute_column_name=compute, iops_column_name=iops, bw_column_name=mbps,
+                     disk_size_column_name=disk_size, disk_type_column_name=disk_type,
+                     min_sku_value=min_ec_model)
     for an in account_name_list:
         # print(f"name {an}")
         if supported_region_list_flag:
@@ -6140,13 +6150,8 @@ def main2(event,df_all):
                                 unique_compute_instances = len(unique_compute_instances_list)
                                 for cp in unique_compute_instances_list:
                                     if not cp == "not_given":
-                                        vm_data = {}
+                                        vm_data = vm_data_all   # precomputed once, above (was a per-VM full-frame apply)
 
-                                        df_csv.apply(calc_compute_usage, axis=1, vm_name=cp,
-                                                     compute_column_name=compute, iops_column_name=iops,
-                                                     bw_column_name=mbps, disk_size_column_name=disk_size,
-                                                     disk_type_column_name=disk_type, vm_data=vm_data,
-                                                     min_sku_value=min_ec_model)
                                         vm_perf_tier = 0
                                         if (vm_data[cp].get("non_perf_tot_iops") > 999 or vm_data[cp].get(
                                                 "non_perf_tot_bw") > 124):
@@ -6352,6 +6357,58 @@ def calc_compute_usage(row, vm_name, compute_column_name, iops_column_name, bw_c
                     "vm_perf_tier": perf_type,
                     "min_ec_model": min_sku_value}
         # print(f"vm data {vm_data[vm_name]}")
+    return
+
+
+def calc_compute_usage_all(row, vm_data, compute_column_name, iops_column_name, bw_column_name,
+                           disk_size_column_name, disk_type_column_name, min_sku_value):
+    """One-pass equivalent of calc_compute_usage: buckets EACH row into its own VM's
+    aggregate, so a SINGLE df.apply builds vm_data for every VM at once — instead of
+    running a full-frame apply once per VM (which was O(VMs x rows)). The per-row
+    accumulation logic is identical to calc_compute_usage (same running sums, same
+    NaN propagation, same disk-type ordering), so results are unchanged."""
+    vm_name = row[compute_column_name]
+    if vm_name == "not_given":
+        return
+    new_iops = row[iops_column_name]
+    new_bw = row[bw_column_name]
+    new_size = row[disk_size_column_name]
+    new_type = row[disk_type_column_name]
+    if vm_name in vm_data:
+        if "Standard" in new_type:
+            vm_data[vm_name]["non_perf_tot_iops"] = vm_data[vm_name]["non_perf_tot_iops"] + new_iops
+            vm_data[vm_name]["non_perf_tot_bw"] = vm_data[vm_name]["non_perf_tot_bw"] + new_bw
+            vm_data[vm_name]["non_perf_num_vols"] = vm_data[vm_name]["non_perf_num_vols"] + 1
+            vm_data[vm_name]["non_perf_tot_cap"] = vm_data[vm_name]["non_perf_tot_cap"] + new_size
+            if not new_type in vm_data[vm_name].get('non_perf_disk_types', []):
+                disk_types = vm_data[vm_name].get('non_perf_disk_types', [])
+                disk_types.append(new_type)
+                vm_data[vm_name]['non_perf_disk_types'] = disk_types
+        else:
+            vm_data[vm_name]["perf_tot_iops"] = vm_data[vm_name]["perf_tot_iops"] + new_iops
+            vm_data[vm_name]["perf_tot_bw"] = vm_data[vm_name]["perf_tot_bw"] + new_bw
+            vm_data[vm_name]["perf_num_vols"] = vm_data[vm_name]["perf_num_vols"] + 1
+            vm_data[vm_name]["perf_tot_cap"] = vm_data[vm_name]["perf_tot_cap"] + new_size
+            if not new_type in vm_data[vm_name].get('perf_disk_types', []):
+                disk_types = vm_data[vm_name].get('perf_disk_types', [])
+                disk_types.append(new_type)
+                vm_data[vm_name]['perf_disk_types'] = disk_types
+    else:
+        if "Standard" in new_type:
+            perf_type = 0
+            vm_data[vm_name] = {
+                "non_perf_tot_iops": new_iops, "non_perf_tot_bw": new_bw, "non_perf_num_vols": 1,
+                "non_perf_disk_types": [new_type], "non_perf_tot_cap": new_size,
+                "perf_tot_iops": 0, "perf_tot_bw": 0, "perf_num_vols": 0, "perf_disk_types": [],
+                "perf_tot_cap": 0, "vm_perf_tier": perf_type, "min_ec_model": min_sku_value}
+        else:
+            perf_type = 1
+            vm_data[vm_name] = {
+                "non_perf_tot_iops": 0, "non_perf_tot_bw": 0, "non_perf_num_vols": 0,
+                "non_perf_disk_types": [], "non_perf_tot_cap": 0,
+                "perf_tot_iops": new_iops, "perf_tot_bw": new_bw, "perf_num_vols": 1,
+                "perf_disk_types": [new_type], "perf_tot_cap": new_size,
+                "vm_perf_tier": perf_type, "min_ec_model": min_sku_value}
     return
 
 def return_sum_capcaity(df,gid,disk_size_col_name):
