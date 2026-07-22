@@ -6149,13 +6149,7 @@ def main2(event,df_all):
                                               (df_csv[disk_type] == dt) & \
                                               (df_csv[a_name] == an) & \
                                               (df_csv[other2_column_name] == nt) & \
-                                              ((df_csv[root_flag] == False) |
-                                               ((df_csv[root_flag] == True) & (
-                                                   df_csv[host_type].str.contains("Windows", case=False)) &
-                                                (df_csv[disk_size] > win_threshold)) |
-                                               ((df_csv[root_flag] == True) & (
-                                                   df_csv[host_type].str.contains("Linux", case=False)) &
-                                                (df_csv[disk_size] > lin_threshold))) & \
+                                              (df_csv[root_flag] == False) & \
                                               (df_csv[disk_status].str.lower().isin(valid_disk_status))
                             # print(f"matched condition {len(df_csv[group_condition])} group id {group_id}")
                             # print("checking shape for condition")
@@ -6237,13 +6231,7 @@ def main2(event,df_all):
                                                   (df_csv[disk_type] == dt) & \
                                                   (df_csv[a_name] == an) & \
                                                   (df_csv[other2_column_name] == nt) & \
-                                                  ((df_csv[root_flag] == False) |
-                                                   ((df_csv[root_flag] == True) & (
-                                                       df_csv[host_type].str.contains("Windows", case=False)) &
-                                                    (df_csv[disk_size] > win_threshold)) |
-                                                   ((df_csv[root_flag] == True) & (
-                                                       df_csv[host_type].str.contains("Linux", case=False)) &
-                                                    (df_csv[disk_size] > lin_threshold))) & \
+                                                  (df_csv[root_flag] == False) & \
                                                   (df_csv[disk_status].str.lower().isin(valid_disk_status))
 
                                 df_csv['group_id'] = df_csv['group_id'].mask(group_condition, group_id)
