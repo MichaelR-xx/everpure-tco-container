@@ -170,7 +170,32 @@ body::before {
 }
 
 .login-card .lc-header { text-align: center; }
-.login-card .lc-logo { font-size: 2.4rem; margin-bottom: 12px; }
+.login-card .lc-logo { margin-bottom: 16px; }
+/* Login hero: Azure logo → animated data flow → active-theme logo. */
+.lc-flow { display:flex; align-items:center; justify-content:center; gap:4px; }
+.lc-mark { width:56px; height:56px; flex:0 0 auto; display:flex; align-items:center; justify-content:center; }
+.lc-mark svg { width:100%; height:100%; display:block; }
+.lc-theme { width:56px; height:56px; flex:0 0 auto;
+  background:var(--cover-art) center/contain no-repeat; }
+.lc-cap { font-size:.58rem; font-weight:700; text-transform:uppercase; letter-spacing:.1em;
+  color:var(--muted); margin-top:6px; }
+.lc-wire { position:relative; width:88px; height:56px; flex:0 0 auto; }
+.lc-wire::before { content:""; position:absolute; top:50%; left:4px; right:4px; height:2px;
+  transform:translateY(-50%); border-radius:2px;
+  background:linear-gradient(90deg, color-mix(in srgb,var(--accent) 25%,transparent),
+                                     color-mix(in srgb,var(--accent) 65%,transparent)); }
+.lc-wire .lc-file { position:absolute; top:50%; width:22px; height:22px; margin-top:-11px;
+  filter:drop-shadow(0 1px 3px rgba(0,0,0,.35));
+  animation:lc-flow 2.4s ease-in-out infinite; }
+.lc-wire .lc-file svg { width:100%; height:100%; display:block; }
+.lc-wire .lc-file:nth-of-type(2) { animation-delay:1.2s; }
+@keyframes lc-flow {
+  0%   { left:2px;  opacity:0; transform:scale(.55); }
+  14%  { opacity:1; transform:scale(1); }
+  82%  { opacity:1; transform:scale(1); }
+  100% { left:64px; opacity:0; transform:scale(.55); }
+}
+@media (prefers-reduced-motion: reduce) { .lc-wire .lc-file { animation:none; opacity:.9; left:33px; } }
 .login-card h2 { font-size: 1.3rem; font-weight: 700; letter-spacing: .02em; }
 .login-card .lc-sub { font-size: .8rem; color: var(--muted); margin-top: 4px; }
 
@@ -581,7 +606,49 @@ body.theme-kyndryl {
   <div class="tab-pane active" id="pane-login">
     <div class="login-card">
       <div class="lc-header">
-        <div class="lc-logo">💧</div>
+        <div class="lc-logo">
+          <div class="lc-flow">
+            <div style="display:flex;flex-direction:column;align-items:center;">
+              <span class="lc-mark" title="Microsoft Azure Managed Disks">
+                <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Microsoft Azure">
+                  <defs>
+                    <linearGradient id="lc-azg" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0" stop-color="#0078D4"/>
+                      <stop offset="1" stop-color="#33BFF0"/>
+                    </linearGradient>
+                  </defs>
+                  <path d="M50 14 L86 86 H60 L50 62 L40 86 H14 Z" fill="url(#lc-azg)"/>
+                  <path d="M50 14 L64 42 H44 Z" fill="#0063B1"/>
+                </svg>
+              </span>
+              <span class="lc-cap">Azure</span>
+            </div>
+            <span class="lc-wire" aria-hidden="true">
+              <span class="lc-file">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M6 2h8l5 5v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" fill="var(--accent)"/>
+                  <path d="M14 2v5h5z" fill="rgba(255,255,255,.5)"/>
+                  <rect x="8" y="11.5" width="8" height="1.6" rx=".8" fill="rgba(255,255,255,.92)"/>
+                  <rect x="8" y="15"   width="8" height="1.6" rx=".8" fill="rgba(255,255,255,.92)"/>
+                  <rect x="8" y="18.5" width="5" height="1.6" rx=".8" fill="rgba(255,255,255,.92)"/>
+                </svg>
+              </span>
+              <span class="lc-file">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M6 2h8l5 5v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" fill="var(--accent)"/>
+                  <path d="M14 2v5h5z" fill="rgba(255,255,255,.5)"/>
+                  <rect x="8" y="11.5" width="8" height="1.6" rx=".8" fill="rgba(255,255,255,.92)"/>
+                  <rect x="8" y="15"   width="8" height="1.6" rx=".8" fill="rgba(255,255,255,.92)"/>
+                  <rect x="8" y="18.5" width="5" height="1.6" rx=".8" fill="rgba(255,255,255,.92)"/>
+                </svg>
+              </span>
+            </span>
+            <div style="display:flex;flex-direction:column;align-items:center;">
+              <span class="lc-theme" role="img" aria-label="Everpure"></span>
+              <span class="lc-cap" id="lc-theme-cap">Everpure</span>
+            </div>
+          </div>
+        </div>
         <h2 id="login-title">Everpure Azure Disk Viz</h2>
         <p class="lc-sub" id="login-subtitle">Sign in to access your managed disk data and analysis</p>
       </div>
@@ -854,10 +921,16 @@ body.theme-kyndryl {
           <div id="mapping-warn" style="display:none;font-size:.76rem;color:var(--warning,#d97706);font-weight:700;"></div>
           <div id="mapping-preview" style="overflow-x:auto;"></div>
           <div id="mapping-grid" style="overflow-x:auto;"></div>
-          <div style="display:flex;align-items:center;gap:12px;">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
             <button class="btn-upload" id="btn-parse" style="background:var(--accent);" disabled>
               <span id="parse-icon">▶</span><span id="parse-label">Parse Data</span>
             </button>
+            <label style="display:flex;align-items:center;gap:6px;font-size:.74rem;color:var(--muted);font-weight:700;" title="Default monthly snapshot change rate baked into this dataset's Azure cost. Can be overridden at Run Analysis time.">
+              Monthly Snapshot Rate
+              <input type="number" id="mapping-snapshot-rate" min="0" max="100" step="1" value="10"
+                     style="width:64px;padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:.78rem;font-family:var(--font-mono);box-sizing:border-box;" />
+              <span style="color:var(--muted);">%</span>
+            </label>
             <span id="mapping-status" style="font-size:.78rem;color:var(--muted);"></span>
           </div>
           <div class="msg-area" id="mapping-messages"></div>
@@ -1173,7 +1246,12 @@ body.theme-kyndryl {
                   style="padding:8px 20px;background:var(--surface2);border:none;border-left:1px solid var(--border);color:var(--muted);font-size:.78rem;font-weight:700;cursor:pointer;transition:background .15s,color .15s;">
                   Off
                 </button>
+                <button class="thr-btn" data-thr="optimized"
+                  style="padding:8px 20px;background:var(--surface2);border:none;border-left:1px solid var(--border);color:var(--muted);font-size:.78rem;font-weight:700;cursor:pointer;transition:background .15s,color .15s;" title="Per group, use whichever of On/Off yields the lower cost.">
+                  Optimized
+                </button>
               </div>
+              <div style="font-size:.6rem;color:var(--muted);">Optimized: choose On/Off per group, whichever costs less.</div>
             </div>
 
             <!-- Years to evaluate -->
@@ -1371,6 +1449,7 @@ body.theme-kyndryl {
                 <span style="font-size:.75rem;color:var(--muted);">Scenario: <strong id="results-sel-scenario" style="color:var(--accent2);">—</strong></span>
                 <span style="font-size:.75rem;color:var(--muted);">Run: <strong id="results-sel-datetime" style="color:var(--text);">—</strong></span>
                 <span style="font-size:.75rem;color:var(--muted);">Size: <strong id="results-sel-size" style="color:var(--text);">—</strong></span>
+                <span style="font-size:.75rem;color:var(--muted);" title="Monthly snapshot rate baked into this dataset at parse time. Pre-fills the Run Analysis snapshot slider.">Snapshot rate: <strong id="results-sel-snaprate" style="color:var(--accent);">—</strong></span>
               </div>
             </div>
 
@@ -1466,6 +1545,26 @@ body.theme-kyndryl {
               <div class="card" style="text-align:center;padding:18px 10px;">
                 <div style="font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:6px;">Native Cost/Mo</div>
                 <div id="kpi-cost" style="font-size:1.6rem;font-weight:700;color:var(--success);font-family:var(--font-mono);">—</div>
+              </div>
+            </div>
+
+            <!-- Azure cost breakdown: capacity / performance / snapshots -->
+            <div style="display:flex;align-items:center;gap:8px;margin-top:2px;">
+              <div style="font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Azure Cost Breakdown / Mo</div>
+              <div style="flex:1;height:1px;background:var(--border);"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;" id="results-kpi-breakdown">
+              <div class="card" style="text-align:center;padding:16px 10px;">
+                <div style="font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:6px;">Capacity</div>
+                <div id="kpi-cap-cost" style="font-size:1.4rem;font-weight:700;color:var(--warning);font-family:var(--font-mono);">—</div>
+              </div>
+              <div class="card" style="text-align:center;padding:16px 10px;">
+                <div style="font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:6px;" title="Provisioned IOPS + throughput (MBps)">Performance</div>
+                <div id="kpi-perf-cost" style="font-size:1.4rem;font-weight:700;color:var(--accent2);font-family:var(--font-mono);">—</div>
+              </div>
+              <div class="card" style="text-align:center;padding:16px 10px;">
+                <div style="font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:6px;">Snapshots</div>
+                <div id="kpi-snap-cost" style="font-size:1.4rem;font-weight:700;color:var(--accent);font-family:var(--font-mono);">—</div>
               </div>
             </div>
 
@@ -1734,6 +1833,8 @@ body.theme-kyndryl {
                 <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
                   <button class="tco-view-btn active" data-view="data"
                     style="padding:8px 20px;background:var(--accent);border:none;color:#fff;font-size:.78rem;font-weight:700;cursor:pointer;">Data</button>
+                  <button class="tco-view-btn" data-view="parsed"
+                    style="padding:8px 20px;background:var(--surface2);border:none;border-left:1px solid var(--border);color:var(--muted);font-size:.78rem;font-weight:700;cursor:pointer;">Parsed Data</button>
                   <button class="tco-view-btn" data-view="graphs"
                     style="padding:8px 20px;background:var(--surface2);border:none;border-left:1px solid var(--border);color:var(--muted);font-size:.78rem;font-weight:700;cursor:pointer;">Graphs</button>
                   <button class="tco-view-btn" data-view="migration"
@@ -1758,6 +1859,22 @@ body.theme-kyndryl {
             <div id="tco-view-data" style="display:flex;flex-direction:column;gap:20px;">
               <div class="card" style="padding:16px 20px;">
                 <div id="tco-data-area"></div>
+              </div>
+            </div>
+
+            <!-- ── PARSED DATA VIEW: per-disk parsed rows for one group ── -->
+            <div id="tco-view-parsed" style="display:none;flex-direction:column;gap:20px;">
+              <div class="card" style="padding:16px 20px;">
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+                  <label style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Group</label>
+                  <select id="tco-parsed-group" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.8rem;padding:6px 12px;outline:none;font-family:var(--font-ui);cursor:pointer;min-width:220px;">
+                    <option value="">— select a group —</option>
+                  </select>
+                  <span id="tco-parsed-snaprate" style="font-size:.72rem;color:var(--muted);"></span>
+                  <button class="btn-sm save" id="btn-tco-parsed-download" style="margin-left:auto;padding:7px 14px;white-space:nowrap;">⬇ Download included groups (CSV)</button>
+                </div>
+                <div style="font-size:.66rem;color:var(--muted);margin-bottom:8px;">Per-disk parsed rows for the selected group, with Azure costs (<code>total_cost</code>/<code>snap_cost</code>) recomputed at the snapshot rate this TCO was generated with. Download exports the parsed rows for every group included in the summary, at the same snapshot rate.</div>
+                <div id="tco-parsed-area"><div style="padding:18px;color:var(--muted);font-size:.82rem;">Select a group to view its parsed data.</div></div>
               </div>
             </div>
 
@@ -3182,9 +3299,13 @@ function resetGuiToDefaults(delayMs) {
     parseBtn.disabled = true;
     $("parse-icon").textContent = "⏳"; $("parse-label").textContent = "Parsing…";
     try {
+      const snapEl = document.getElementById("mapping-snapshot-rate");
+      let snapRate = snapEl ? parseFloat(snapEl.value) / 100 : 0.1;
+      if (!Number.isFinite(snapRate)) snapRate = 0.1;
       const res  = await fetch("/api/mapping/parse", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fieldIndexMap: fieldIndexMap(), name: datasetName, searchable: [...searchable] }),
+        body: JSON.stringify({ fieldIndexMap: fieldIndexMap(), name: datasetName, searchable: [...searchable],
+                               monthly_snapshot_rate: snapRate }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Parse failed.");
@@ -3820,6 +3941,11 @@ function resetGuiToDefaults(delayMs) {
       ? m.total_capacity_gib.toLocaleString(undefined,{maximumFractionDigits:1}) : "—";
     document.getElementById("kpi-cost").textContent     = m.total_cost    != null
       ? "$"+m.total_cost.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : "—";
+    const usd = v => v != null
+      ? "$"+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) : "—";
+    document.getElementById("kpi-cap-cost").textContent  = usd(m.capacity_cost);
+    document.getElementById("kpi-perf-cost").textContent = usd(m.performance_cost);
+    document.getElementById("kpi-snap-cost").textContent = usd(m.snapshot_cost);
   }
 
   /* ── Group breakdown table ─────────────────────────── */
@@ -3980,6 +4106,16 @@ function resetGuiToDefaults(delayMs) {
 
   function renderDetail(m) {
     setKpis(m);
+    // Show the dataset's parse-time snapshot rate and pre-fill the analysis slider with it.
+    if (m.parsed_snapshot_rate != null) {
+      const pct = Math.round(m.parsed_snapshot_rate * 100);
+      const srEl = document.getElementById("results-sel-snaprate");
+      if (srEl) srEl.textContent = pct + "%";
+      const slider = document.getElementById("param-snapshot");
+      const label  = document.getElementById("val-snapshot");
+      if (slider) { slider.value = pct; if (label) label.textContent = pct + "%"; }
+      if (typeof updateParamsSummary === "function") { try { updateParamsSummary(); } catch(_){} }
+    }
     renderGroupTable(m.group_breakdown || []);
 
     // Region table
@@ -4495,7 +4631,8 @@ function resetGuiToDefaults(delayMs) {
       default_sku_model:   activeSku,
       initial_cap_rate:    parseFloat(document.getElementById("param-initsize").value) / 100,
       ignore_iops_provisioned: iopsMode === "off",
-      consider_throughput: throughputMode === "on",   // Azure Native: include MBps in array sizing
+      consider_throughput: throughputMode === "on",   // Azure Native: include MBps in array sizing (legacy bool)
+      throughput_mode: throughputMode,                 // "on" | "off" | "optimized" (per-group cost-min)
       efficiency:          parseFloat(document.getElementById("param-efficiency").value) / 100,
       // ── Advanced configuration ──
       price_mode:                      document.getElementById("param-price-mode").value,
@@ -4995,7 +5132,10 @@ function resetGuiToDefaults(delayMs) {
       const adjLicense = num(r["Y1 PSC Lic $"]) * (1 - (s.eDisc || 0)) * (1 + (s.margin || 0));
       const infra      = num(r["Y1 PSC Res $"]);
       const adjAzure   = num(r["Y1 Azure Native $"]) * (1 - (s.aDisc || 0));
-      const rate = adjAzure ? (adjAzure - (adjLicense + infra)) / adjAzure : 0;
+      // When Azure cost is 0, savings = -(everpure); a negative-savings group must
+      // get a negative rate so it is excluded at Min Savings = 0 (not defaulted to 0).
+      const sav0 = adjAzure - (adjLicense + infra);
+      const rate = adjAzure ? sav0 / adjAzure : (sav0 < 0 ? -1 : 0);
       const regionOk = !selRegions.size || selRegions.has(String(r["Region"]));
       if (s.includeAll ? true : (rate >= (s.minSav || 0) && regionOk)) set.add(String(r["desc"]));
     });
@@ -5385,7 +5525,9 @@ function resetGuiToDefaults(delayMs) {
       const everpureTotal = adjLicense + infra;
       const adjAzure      = azure0 * (1 - aDisc);
       const savings       = adjAzure - everpureTotal;
-      const rate          = adjAzure ? savings / adjAzure : 0;
+      // Azure cost 0 -> savings = -(everpure); a negative-savings group must get a
+      // negative rate so Min Savings = 0 excludes it (don't default to 0 = "included").
+      const rate          = adjAzure ? savings / adjAzure : (savings < 0 ? -1 : 0);
       const regionOk = !selRegions.size || selRegions.has(String(r["Region"]));
       // A follower inherits the primary's group set; otherwise "All" overrides every
       // filter, else apply min-savings AND region.
@@ -5399,6 +5541,14 @@ function resetGuiToDefaults(delayMs) {
         numCompute: num(r["Num Compute"]), numVolumes: num(r["Num Volumes"]), arrayCount: num(r["Y1 PSC Array Count"]),
         minCap: r["Min Capacity Applied"],   // Azure Native only ("Yes"/"No"); undefined otherwise
         adjAzure, adjLicense, infra, everpureTotal, savings, rate, included,
+        // Azure Managed Disk cost breakdown (discounted like the total so parts sum
+        // to Azure MD Total). hasMd=false for older runs lacking these columns.
+        azCap:  num(r["Y1 Azure MD Capacity $"])    * (1 - aDisc),
+        azPerf: num(r["Y1 Azure MD Performance $"]) * (1 - aDisc),
+        azSnap: num(r["Y1 Azure MD Snapshots $"])   * (1 - aDisc),
+        hasMd: (r["Y1 Azure MD Capacity $"] !== undefined
+                || r["Y1 Azure MD Performance $"] !== undefined
+                || r["Y1 Azure MD Snapshots $"] !== undefined),
       };
     });
     const incl = computed.filter(c => c.included);
@@ -5413,7 +5563,11 @@ function resetGuiToDefaults(delayMs) {
       infra:    a.infra    + c.infra,
       everpure: a.everpure + c.everpureTotal,
       azure:    a.azure    + c.adjAzure,
-    }), { license: 0, infra: 0, everpure: 0, azure: 0 });
+      azCap:    a.azCap    + c.azCap,
+      azPerf:   a.azPerf   + c.azPerf,
+      azSnap:   a.azSnap   + c.azSnap,
+    }), { license: 0, infra: 0, everpure: 0, azure: 0, azCap: 0, azPerf: 0, azSnap: 0 });
+    tot.hasMd = incl.some(c => c.hasMd);
     tot.savings = tot.azure - tot.everpure;
     tot.rate    = tot.azure ? tot.savings / tot.azure : 0;
     // Blended $/GiB/month rates (monthly cost ÷ capacity), across included groups.
@@ -5503,7 +5657,8 @@ function resetGuiToDefaults(delayMs) {
     const head = ["Group","Region","Account","Availability Zone","VNet","SKU",
                   "VMs","Volumes","Arrays","Original Cap (GiB)","EC Lic Cap (GiB)",
                   ...(showMinCap ? ["Min Cap"] : []),
-                  "Mig Month","Azure Native $","Everpure Lic $","Everpure Infra $","Everpure Total $",
+                  "Mig Month","Azure MD Total $","Azure MD Capacity $","Azure MD Performance $","Azure MD Snapshots $",
+                  "Everpure Lic $","Everpure Infra $","Everpure Total $",
                   "Azure $/GiB (orig)","EP $/GiB (orig)","EP $/GiB (lic)",
                   "Savings $","Savings %","Included"];
     const rows = [head.map(esc).join(",")];
@@ -5515,7 +5670,9 @@ function resetGuiToDefaults(delayMs) {
         Math.round(num(c.origCap)), Math.round(num(c.licCap)),
         ...(showMinCap ? [String(c.minCap) === "Yes" ? "Yes" : "No"] : []),
         migMonth != null ? migMonth : "",
-        Math.round(c.adjAzure * m), Math.round(c.adjLicense * m), Math.round(c.infra * m),
+        Math.round(c.adjAzure * m),
+        c.hasMd ? Math.round(c.azCap * m) : "", c.hasMd ? Math.round(c.azPerf * m) : "", c.hasMd ? Math.round(c.azSnap * m) : "",
+        Math.round(c.adjLicense * m), Math.round(c.infra * m),
         Math.round(c.everpureTotal * m),
         perGib(c.adjAzure, c.origCap), perGib(c.everpureTotal, c.origCap), perGib(c.everpureTotal, c.licCap),
         Math.round(c.savings * m),
@@ -5536,7 +5693,9 @@ function resetGuiToDefaults(delayMs) {
       Math.round(capOrig), Math.round(capLic),
       ...(showMinCap ? [""] : []),
       "",
-      Math.round(t.azure * m), Math.round(t.license * m), Math.round(t.infra * m), Math.round(t.everpure * m),
+      Math.round(t.azure * m),
+      t.hasMd ? Math.round(t.azCap * m) : "", t.hasMd ? Math.round(t.azPerf * m) : "", t.hasMd ? Math.round(t.azSnap * m) : "",
+      Math.round(t.license * m), Math.round(t.infra * m), Math.round(t.everpure * m),
       perGib(t.azure, capOrig), perGib(t.everpure, capOrig), perGib(t.everpure, capLic),
       Math.round(t.savings * m),
       (t.rate * 100).toFixed(1) + "%", "",
@@ -6185,7 +6344,8 @@ function resetGuiToDefaults(delayMs) {
     const showMinCap = computed.some(c => c.minCap !== undefined && c.minCap !== null && c.minCap !== "");
     const head = ["Group","Region","Account","Avail. Zone","VNet","SKU","VMs","Volumes","Arrays","Original Cap (GiB)","EC Lic Cap (GiB)",
                   ...(showMinCap ? ["Min Cap"] : []),
-                  "Mig Month","Azure Native $","Everpure Lic $","Everpure Infra $","Everpure Total $",
+                  "Mig Month","Azure MD Total $","Azure MD Capacity $","Azure MD Performance $","Azure MD Snapshots $",
+                  "Everpure Lic $","Everpure Infra $","Everpure Total $",
                   "Azure $/GiB (orig)","EP $/GiB (orig)","EP $/GiB (lic)","Savings $","Savings %","Incl."];
     const td = (v, extra) => `<td style="padding:7px 10px;border-bottom:1px solid var(--border);${extra || ""}">${v}</td>`;
     const mono = "font-family:var(--font-mono);";
@@ -6246,6 +6406,9 @@ function resetGuiToDefaults(delayMs) {
         ${showMinCap ? td(String(c.minCap) === "Yes" ? "⚠ Yes" : "No", String(c.minCap) === "Yes" ? "color:var(--warning,#d97706);font-weight:700;" : "color:var(--muted);") : ""}
         ${td(migMonth != null ? migMonth : "—", mono)}
         ${td(fmtUsd(c.adjAzure * months), mono)}
+        ${td(c.hasMd ? fmtUsd(c.azCap * months) : "—", mono + "color:var(--warning);")}
+        ${td(c.hasMd ? fmtUsd(c.azPerf * months) : "—", mono + "color:var(--accent2);")}
+        ${td(c.hasMd ? fmtUsd(c.azSnap * months) : "—", mono)}
         ${td(fmtUsd(c.adjLicense * months), mono)}
         ${td(fmtUsd(c.infra * months), mono)}
         ${td(fmtUsd(c.everpureTotal * months), mono)}
@@ -6276,6 +6439,9 @@ function resetGuiToDefaults(delayMs) {
         ${showMinCap ? tf("") : ""}
         ${tf("")}
         ${tf(fmtUsd(tot.azure * months), mono)}
+        ${tf(tot.hasMd ? fmtUsd(tot.azCap * months) : "—", mono + "color:var(--warning);")}
+        ${tf(tot.hasMd ? fmtUsd(tot.azPerf * months) : "—", mono + "color:var(--accent2);")}
+        ${tf(tot.hasMd ? fmtUsd(tot.azSnap * months) : "—", mono)}
         ${tf(fmtUsd(tot.license * months), mono)}
         ${tf(fmtUsd(tot.infra * months), mono)}
         ${tf(fmtUsd(tot.everpure * months), mono)}
@@ -6408,14 +6574,17 @@ function resetGuiToDefaults(delayMs) {
       b.style.color      = on ? "#fff" : "var(--muted)";
     });
     $("tco-view-data").style.display      = (mode === "data")      ? "flex" : "none";
+    $("tco-view-parsed").style.display    = (mode === "parsed")    ? "flex" : "none";
     $("tco-view-graphs").style.display    = (mode === "graphs")    ? "flex" : "none";
     $("tco-view-migration").style.display = (mode === "migration") ? "flex" : "none";
     $("tco-view-advanced").style.display  = (mode === "advanced")  ? "flex" : "none";
     $("tco-view-downloads").style.display = (mode === "downloads") ? "flex" : "none";
     $("tco-view-consolidation").style.display = (mode === "consolidation") ? "flex" : "none";
-    // The per-view download button applies only to Data/Graphs/Advanced.
-    $("btn-tco-view-download").style.display = (mode === "downloads" || mode === "migration" || mode === "consolidation") ? "none" : "";
+    // The generic per-view download button applies to Data/Graphs/Advanced only
+    // (Parsed Data has its own included-groups download button).
+    $("btn-tco-view-download").style.display = (mode === "downloads" || mode === "migration" || mode === "consolidation" || mode === "parsed") ? "none" : "";
     $("btn-tco-view-download").textContent = (mode === "graphs") ? "⬇ Download PDF" : "⬇ Download CSV";
+    if (mode === "parsed") populateParsedGroups();
     if (mode === "advanced") loadDfGroups();
     if (mode === "downloads") loadDownloads();
     if (mode === "migration") { renderMigrationControls(); loadMigrationPlans(); }
@@ -6427,6 +6596,111 @@ function resetGuiToDefaults(delayMs) {
   document.querySelectorAll(".tco-view-btn").forEach(btn => {
     btn.addEventListener("click", () => applyView(btn.dataset.view));
   });
+
+  // ── PARSED DATA view ───────────────────────────────────────────────────────
+  // Per-disk parsed rows for a single group, with Azure costs recomputed at the
+  // snapshot rate the selected TCO was generated with. Default: no group selected.
+  function populateParsedGroups() {
+    const sel = $("tco-parsed-group");
+    if (!sel) return;
+    const prev = sel.value;
+    const groups = (lastComputed || []).slice().sort((a, b) => b.rate - a.rate);
+    sel.innerHTML = '<option value="">— select a group —</option>' +
+      groups.map(c => `<option value="${escHtml(String(c.group))}">${escHtml(String(c.group))}${c.included ? "" : " (excluded)"}</option>`).join("");
+    sel.value = (prev && groups.some(c => String(c.group) === prev)) ? prev : "";
+    const r = (selectedRun && selectedRun.params) ? selectedRun.params.monthly_snapshot_rate : null;
+    $("tco-parsed-snaprate").textContent = (r != null) ? `Snapshot rate: ${Math.round(num(r) * 100)}%` : "";
+    if (sel.value) loadParsedGroup(sel.value);
+    else $("tco-parsed-area").innerHTML = `<div style="padding:18px;color:var(--muted);font-size:.82rem;">Select a group to view its parsed data.</div>`;
+  }
+
+  async function loadParsedGroup(group) {
+    if (!selectedRun || !group) return;
+    const area = $("tco-parsed-area");
+    area.innerHTML = `<div style="padding:18px;color:var(--muted);font-size:.82rem;">Loading…</div>`;
+    try {
+      const res = await fetch("/api/tco/parsed-group", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_summary_key: selectedRun.group_summary_key, group }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load parsed data.");
+      renderParsedGroup(data);
+    } catch (e) {
+      area.innerHTML = `<div style="padding:18px;color:var(--danger);font-size:.82rem;">${escHtml(e.message)}</div>`;
+    }
+  }
+
+  function renderParsedGroup(data) {
+    const area = $("tco-parsed-area");
+    const cols = data.columns || [];
+    const rows = data.rows || [];
+    if (!rows.length) { area.innerHTML = `<div style="padding:18px;color:var(--muted);font-size:.82rem;">No rows for this group.</div>`; return; }
+    const costCols = ["total_cost", "cap_cost", "iops_cost", "mbps_cost", "snap_cost"];
+    const money = new Set(costCols);
+    const ordered = [...cols.filter(c => !costCols.includes(c)), ...costCols.filter(c => cols.includes(c))];
+    const th = h => `<th style="text-align:left;padding:7px 10px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">${escHtml(h)}</th>`;
+    const cell = (c, v) => (v === null || v === undefined || v === "") ? "—" : (money.has(c) ? fmtUsd(num(v)) : escHtml(String(v)));
+    let html = "";
+    const s = data.summary;
+    if (s) {
+      const item = (label, val) => `<div style="display:flex;flex-direction:column;gap:2px;">
+        <span style="font-size:.58rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">${escHtml(label)}</span>
+        <span style="font-size:.9rem;font-weight:700;font-family:var(--font-mono);color:var(--text);">${val}</span></div>`;
+      const usd = v => (v === null || v === undefined) ? "—" : "$" + num(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+      const gib = v => (v === null || v === undefined) ? "—" : num(v).toLocaleString(undefined,{maximumFractionDigits:1}) + " GiB";
+      html += `<div class="card" style="padding:14px 16px;margin-bottom:14px;">
+        <div style="font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:10px;">Group ${escHtml(String(data.group))} — summary <span style="text-transform:none;letter-spacing:0;font-weight:400;">(Azure MD costs at snapshot rate ${Math.round((data.snapshot_rate || 0) * 100)}%)</span></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:14px 18px;">
+          ${item("Region", escHtml(String(s.region)))}
+          ${item("Zone", escHtml(String(s.zone)))}
+          ${item("Subscription", escHtml(String(s.subscription)))}
+          ${item("VNet", escHtml(String(s.vnet)))}
+          ${item("Volumes", (s.volume_count||0).toLocaleString())}
+          ${item("Capacity", gib(s.capacity_gib))}
+          ${item("Azure MD Total", `<span style="color:var(--success,#7ab87a);">${usd(s.total_cost)}</span>`)}
+          ${item("Capacity Cost", `<span style="color:var(--warning);">${usd(s.capacity_cost)}</span>`)}
+          ${item("Performance Cost", `<span style="color:var(--accent2);">${usd(s.performance_cost)}</span>`)}
+          ${item("Snapshot Cost", `<span style="color:var(--accent);">${usd(s.snapshot_cost)}</span>`)}
+        </div>
+      </div>`;
+    }
+    html += `<div style="font-size:.66rem;color:var(--muted);margin-bottom:8px;">Per-disk rows — ${(data.row_count || 0).toLocaleString()} disk row${data.row_count === 1 ? "" : "s"}${data.truncated ? ` (showing first ${rows.length.toLocaleString()})` : ""}.</div>`;
+    html += `<div style="overflow-x:scroll;"><table style="width:100%;min-width:800px;border-collapse:collapse;font-size:.72rem;"><thead><tr>${ordered.map(th).join("")}</tr></thead><tbody>`;
+    rows.forEach(r => {
+      html += `<tr>${ordered.map(c => `<td style="padding:6px 10px;border-bottom:1px solid var(--border);${money.has(c) ? "font-family:var(--font-mono);" : ""}white-space:nowrap;">${cell(c, r[c])}</td>`).join("")}</tr>`;
+    });
+    html += `</tbody></table></div>`;
+    area.innerHTML = html;
+  }
+
+  async function downloadParsedIncluded() {
+    if (!selectedRun) { showMsgs(detailMsgs, ["Select a TCO run first."], "error"); return; }
+    const incl = (lastComputed || []).filter(c => c.included).map(c => String(c.group));
+    if (!incl.length) { showMsgs(detailMsgs, ["No groups are included in the summary."], "error"); return; }
+    try {
+      const res = await fetch("/api/tco/parsed-download", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_summary_key: selectedRun.group_summary_key, groups: incl }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Download failed."); }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `parsed_included_${selectedRun.scenario || "tco"}_${selectedRun.tco_id || "run"}.csv`.replace(/[^\w.\-]+/g, "_");
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    } catch (e) {
+      showMsgs(detailMsgs, ["Download error: " + e.message], "error");
+    }
+  }
+
+  $("tco-parsed-group").addEventListener("change", (e) => {
+    const g = e.target.value;
+    if (g) loadParsedGroup(g);
+    else $("tco-parsed-area").innerHTML = `<div style="padding:18px;color:var(--muted);font-size:.82rem;">Select a group to view its parsed data.</div>`;
+  });
+  $("btn-tco-parsed-download").addEventListener("click", downloadParsedIncluded);
 
   // ── CONSOLIDATION view ─────────────────────────────────────────────────────
   // Fold negative-savings groups into positive ones, re-run the TCO on the new
@@ -7488,6 +7762,10 @@ function resetGuiToDefaults(delayMs) {
     if (brandEl) brandEl.textContent = co;
     if (tailEl)  tailEl.textContent  = tail;
     if (loginEl) loginEl.textContent = co + " " + tail;
+    const themeCapEl = document.getElementById("lc-theme-cap");   // login hero theme-logo caption
+    const themeLogoEl = document.querySelector(".lc-theme");
+    if (themeCapEl) themeCapEl.textContent = co;
+    if (themeLogoEl) themeLogoEl.setAttribute("aria-label", co);
     if (t.tabs)   for (const id in t.tabs)   reword(document.getElementById(id), t.tabs[id], true);
     if (t.labels) for (const id in t.labels) reword(document.getElementById(id), t.labels[id], false);
     if (t.prefix) document.querySelectorAll(".page-heading h2").forEach(h => {

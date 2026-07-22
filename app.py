@@ -599,6 +599,150 @@ def tco_list():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
+def _adjusted_parsed_for_tco(group_summary_key):
+    """Load the parsed_data.csv behind a TCO run and rescale snap_cost/total_cost to the
+    snapshot rate that TCO was generated with (from its meta.json params), so the parsed
+    rows reflect the exact Azure costs that TCO used. Returns (df, tco_rate).
+
+    The parsed dataset lives at the run's dataset dir (the path before '/tco/'); the
+    snapshot rate the analysis used is in the run's meta.json. snap_cost is linear in
+    ((rate/2)+1) and total_cost == cap+iops+mbps+snap, so the rescale is exact.
+    """
+    global s3_bucket
+    base       = group_summary_key.split("/tco/")[0]      # dataset results dir
+    parsed_key = f"{base}/parsed_data.csv"
+    cfg_key    = f"{base}/source_data_config.json"
+    meta_key   = group_summary_key.replace("group_summary.csv", "meta.json")
+    s3 = _s3_client()
+    text = s3.get_object(Bucket=s3_bucket, Key=parsed_key)["Body"].read().decode("utf-8")
+    df = pd.read_csv(StringIO(text), on_bad_lines="warn")
+    df.columns = [c.replace("pscd", "ec") if isinstance(c, str) else c for c in df.columns]
+    # Parse-time rate (r0) from the dataset config; analysis rate from the run's meta.
+    cfg = {}
+    try:
+        cfg = json.loads(s3.get_object(Bucket=s3_bucket, Key=cfg_key)["Body"].read().decode("utf-8")) or {}
+        r0 = float(cfg.get("monthly_snapshot_rate", 0.1))
+    except Exception:
+        r0 = 0.1
+    try:
+        meta = json.loads(s3.get_object(Bucket=s3_bucket, Key=meta_key)["Body"].read().decode("utf-8")) or {}
+        tco_rate = float((meta.get("params") or {}).get("monthly_snapshot_rate", r0))
+    except Exception:
+        tco_rate = r0
+    cost_cols = {"cap_cost", "iops_cost", "mbps_cost", "snap_cost", "total_cost"}
+    if tco_rate != r0 and cost_cols.issubset(df.columns):
+        for c in cost_cols:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+        old_factor = (r0 / 2) + 1
+        new_factor = 0.0 if tco_rate == 0 else (tco_rate / 2) + 1
+        snap_unit = df["snap_cost"] / old_factor
+        df["snap_cost"] = snap_unit * new_factor
+        df["total_cost"] = (df["cap_cost"] + df["iops_cost"] + df["mbps_cost"] + df["snap_cost"])
+    return df, tco_rate, cfg
+
+
+@app.route("/api/tco/parsed-group", methods=["POST"])
+@login_required
+def tco_parsed_group():
+    """Return the parsed data rows for ONE group of a TCO run, with snap_cost/total_cost
+    adjusted to the snapshot rate that TCO was generated with. Powers the TCO Review
+    'Parsed Data' view (the user picks a group; default is none)."""
+    global s3_bucket
+    body  = request.get_json(force=True) or {}
+    key   = str(body.get("group_summary_key", "")).strip()
+    group = str(body.get("group", "")).strip()
+    if not key.endswith("group_summary.csv") or "/tco/" not in key:
+        return jsonify({"error": "A valid group_summary_key is required."}), 400
+    if not group:
+        return jsonify({"error": "A group is required."}), 400
+    try:
+        df, tco_rate, cfg = _adjusted_parsed_for_tco(key)
+    except ClientError as exc:
+        code = exc.response["Error"]["Code"]
+        if code in ("404", "NoSuchKey"):
+            return jsonify({"error": "parsed_data.csv not found for this TCO."}), 404
+        return jsonify({"error": f"AWS error: {exc.response['Error']['Message']}"}), 500
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    if "group_id" not in df.columns:
+        return jsonify({"error": "parsed data has no group_id column."}), 400
+    full = df[df["group_id"].astype(str) == group]
+    total = int(len(full))
+
+    # ── Per-group summary: identity attributes + capacity + all cost values ──
+    col_names = df.columns.tolist()
+    def _attr(field):
+        try:
+            idx = int(cfg.get(field, -99))
+        except (TypeError, ValueError):
+            idx = -99
+        if not (0 <= idx < len(col_names)) or col_names[idx] not in full.columns:
+            return "—"
+        vals = [v for v in full[col_names[idx]].dropna().unique().tolist()]
+        if not vals:
+            return "—"
+        return str(vals[0]) if len(vals) == 1 else f"mixed ({len(vals)})"
+    def _sum(col):
+        return round(float(pd.to_numeric(full[col], errors="coerce").fillna(0).sum()), 2) if col in full.columns else None
+    cap_col_idx = cfg.get("disk_size", -99)
+    cap_col = col_names[cap_col_idx] if isinstance(cap_col_idx, int) and 0 <= cap_col_idx < len(col_names) else None
+    perf = None
+    if "iops_cost" in full.columns and "mbps_cost" in full.columns:
+        perf = round(float((pd.to_numeric(full["iops_cost"], errors="coerce").fillna(0)
+                            + pd.to_numeric(full["mbps_cost"], errors="coerce").fillna(0)).sum()), 2)
+    summary = {
+        "region": _attr("region"), "zone": _attr("zone"),
+        "subscription": _attr("subscription_or_account_id"), "vnet": _attr("vnet_or_vpc"),
+        "volume_count": total,
+        "capacity_gib": (round(float(pd.to_numeric(full[cap_col], errors="coerce").fillna(0).sum()), 2)
+                         if cap_col and cap_col in full.columns else None),
+        "total_cost": _sum("total_cost"), "capacity_cost": _sum("cap_cost"),
+        "performance_cost": perf, "snapshot_cost": _sum("snap_cost"),
+    }
+
+    LIMIT = 1000
+    sub = full.head(LIMIT).copy()
+    # Round cost columns for display and make the frame JSON-safe (NaN -> None).
+    for c in ("total_cost", "cap_cost", "iops_cost", "mbps_cost", "snap_cost", "paid_capacity"):
+        if c in sub.columns:
+            sub[c] = pd.to_numeric(sub[c], errors="coerce").round(4)
+    safe = sub.astype(object).where(pd.notnull(sub), None)
+    return jsonify({"ok": True, "group": group, "snapshot_rate": tco_rate,
+                    "diag_marker": "SUMV2", "summary": summary,
+                    "columns": list(sub.columns), "rows": safe.to_dict(orient="records"),
+                    "row_count": total, "truncated": total > LIMIT})
+
+
+@app.route("/api/tco/parsed-download", methods=["POST"])
+@login_required
+def tco_parsed_download():
+    """Download the parsed data for the groups INCLUDED in a TCO's summary, with
+    snap_cost/total_cost adjusted to the snapshot rate that TCO was generated with."""
+    global s3_bucket
+    body   = request.get_json(force=True) or {}
+    key    = str(body.get("group_summary_key", "")).strip()
+    groups = body.get("groups")
+    if not key.endswith("group_summary.csv") or "/tco/" not in key:
+        return jsonify({"error": "A valid group_summary_key is required."}), 400
+    try:
+        df, tco_rate, _cfg = _adjusted_parsed_for_tco(key)
+    except ClientError as exc:
+        code = exc.response["Error"]["Code"]
+        if code in ("404", "NoSuchKey"):
+            return jsonify({"error": "parsed_data.csv not found for this TCO."}), 404
+        return jsonify({"error": f"AWS error: {exc.response['Error']['Message']}"}), 500
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    if isinstance(groups, list) and groups and "group_id" in df.columns:
+        gset = {str(g) for g in groups}
+        df = df[df["group_id"].astype(str).isin(gset)]
+    scenario = key.split("/")[3] if len(key.split("/")) > 3 else "tco"
+    tco_id   = key.split("/tco/")[1].split("/")[0] if "/tco/" in key else "run"
+    fname = f"parsed_included_{scenario}_{tco_id}.csv".replace(" ", "_")
+    return Response(df.to_csv(index=False).encode("utf-8"), mimetype="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
 @app.route("/api/tco/delete", methods=["POST"])
 @login_required
 def tco_delete():
@@ -2045,6 +2189,25 @@ def _compute_detail_metrics(df, cfg_data):
     df["total_cost"] = pd.to_numeric(df["total_cost"], errors="coerce")
     metrics["total_cost"] = round(float(df["total_cost"].sum()), 2)
     metrics["cost_column"] = "total_cost"
+    # Azure cost breakdown: capacity, performance (provisioned IOPS + throughput), and
+    # snapshots. The per-disk components are stored at parse time; sum them here so the
+    # Results view can show how the Azure cost splits. Guarded for safety.
+    def _col_sum(name):
+        return round(float(pd.to_numeric(df[name], errors="coerce").fillna(0).sum()), 2)
+    metrics["capacity_cost"] = _col_sum("cap_cost") if "cap_cost" in df.columns else None
+    if {"iops_cost", "mbps_cost"}.issubset(df.columns):
+        metrics["performance_cost"] = round(
+            float((pd.to_numeric(df["iops_cost"], errors="coerce").fillna(0)
+                   + pd.to_numeric(df["mbps_cost"], errors="coerce").fillna(0)).sum()), 2)
+    else:
+        metrics["performance_cost"] = None
+    metrics["snapshot_cost"] = _col_sum("snap_cost") if "snap_cost" in df.columns else None
+    # Parse-time snapshot rate baked into this dataset (fraction). Shown on selection and
+    # used to pre-fill the analysis slider. Defaults to main2's historical 0.1.
+    try:
+        metrics["parsed_snapshot_rate"] = float((cfg_data or {}).get("monthly_snapshot_rate", 0.1))
+    except (TypeError, ValueError):
+        metrics["parsed_snapshot_rate"] = 0.1
     metrics["num_groups"] = int(df["group_id"].nunique())
     if no_region_flag:
         metrics["region_breakdown"] = []
@@ -2520,6 +2683,32 @@ def results_run_analysis():
         return jsonify({"error": f"AWS error fetching config: {exc.response['Error']['Message']}"}), 500
     except Exception as exc:
         return jsonify({"error": f"Error fetching config: {exc}"}), 500
+
+    # ── 2.a. Snapshot-rate override: adjust the Azure baseline for the analysis ──
+    # The per-disk Azure snapshot cost was baked in at parse time using the dataset's
+    # parse-time rate (r0). If the analysis specifies a different monthly_snapshot_rate,
+    # rescale snap_cost and re-sum total_cost so the Azure baseline reflects the new rate.
+    # snap_cost is linear in the factor ((rate/2)+1) (and 0 at rate 0), and
+    # total_cost == cap_cost + iops_cost + mbps_cost + snap_cost holds exactly, so the
+    # rescale is exact. Affects both engines, which read df_parsed["total_cost"].
+    try:
+        r0 = float(source_data_config.get("monthly_snapshot_rate", 0.1))
+    except (TypeError, ValueError):
+        r0 = 0.1
+    try:
+        new_rate = float(params.get("monthly_snapshot_rate", r0))
+    except (TypeError, ValueError):
+        new_rate = r0
+    _cost_cols = {"cap_cost", "iops_cost", "mbps_cost", "snap_cost", "total_cost"}
+    if new_rate != r0 and _cost_cols.issubset(df_parsed.columns):
+        for _c in _cost_cols:
+            df_parsed[_c] = pd.to_numeric(df_parsed[_c], errors="coerce").fillna(0)
+        old_factor = (r0 / 2) + 1                       # >= 1 for r0 >= 0, safe divisor
+        new_factor = 0.0 if new_rate == 0 else (new_rate / 2) + 1
+        snap_unit = df_parsed["snap_cost"] / old_factor  # snap_cost at factor 1
+        df_parsed["snap_cost"] = snap_unit * new_factor
+        df_parsed["total_cost"] = (df_parsed["cap_cost"] + df_parsed["iops_cost"]
+                                   + df_parsed["mbps_cost"] + df_parsed["snap_cost"])
 
     # ── 2.b. Fetch azure_manage_disk_cost.csv ───────────────────────────────────
     try:
@@ -3632,6 +3821,15 @@ def mapping_parse():
             except (TypeError, ValueError):
                 pass
         config["searchable_columns"] = sorted(set(idxs))
+    # Monthly snapshot rate chosen on the Parse Data page (fraction, 0..1). Baked into
+    # the per-disk Azure cost at parse time (main2 -> calc_true_cost_azure) and persisted
+    # in source_data_config.json so it is shown on selection and used as the analysis
+    # default. Defaults to 0.1 (10%), matching main2's historical default.
+    try:
+        snap_rate = float(body.get("monthly_snapshot_rate", 0.1))
+    except (TypeError, ValueError):
+        snap_rate = 0.1
+    config["monthly_snapshot_rate"] = max(0.0, min(1.0, snap_rate))
     session["json_config"] = config
     try:
         results = read_file_s3(upload_prefix)
@@ -4433,6 +4631,31 @@ def get_ec_size_n_cost_data(regions, customer, directory, ec):
         return df_ec_pricing
 
 
+# Per-parse cache for Azure retail-price lookups. calc_true_cost_azure is applied
+# per disk row; without caching it re-scans the entire pricing frame for each of a
+# dataset's (up to tens of thousands of) rows. The same (region, meter/sku) combo
+# recurs constantly, so caching the unique-price result collapses ~4 full-frame
+# scans/row down to one scan per distinct combo. Cleared at the start of each parse.
+_price_lookup_cache = {}
+
+
+def _cup(azure_pricing, conds):
+    """Cached unique retailPrice lookup for a set of {column: value} equality
+    filters. Returns the same numpy array as azure_pricing.loc[mask, 'retailPrice']
+    .unique() — results are identical to the pre-cache code, only faster."""
+    key = tuple(sorted((k, str(v)) for k, v in conds.items()))
+    cached = _price_lookup_cache.get(key)
+    if cached is not None:
+        return cached
+    mask = None
+    for col, val in conds.items():
+        m = azure_pricing[col] == val
+        mask = m if mask is None else (mask & m)
+    res = azure_pricing.loc[mask, "retailPrice"].unique()
+    _price_lookup_cache[key] = res
+    return res
+
+
 def calc_true_cost_azure(row, azure_pricing):
     global iops
     global mbps
@@ -4476,10 +4699,9 @@ def calc_true_cost_azure(row, azure_pricing):
             mbps_val = 1
         else:
             mbps_val = int(row[mbps])
-        lrs_snapshots = azure_pricing.loc[(azure_pricing[region_col_name] == region_name) &
-                                          (azure_pricing[product_name] == hdd_product_name) &
-                                          (azure_pricing[
-                                               sku_col_name] == lrs_snapshot_sku_name), retail_price_col_name].unique()
+        lrs_snapshots = _cup(azure_pricing, {region_col_name: region_name,
+                                             product_name: hdd_product_name,
+                                             sku_col_name: lrs_snapshot_sku_name})
         lrs_snapshot_price = 0.018
         if len(lrs_snapshots) == 1:
             lrs_snapshot_price = lrs_snapshots[0]
@@ -4493,9 +4715,7 @@ def calc_true_cost_azure(row, azure_pricing):
         cap_meter = "Ultra LRS Provisioned Capacity"
         iops_meter = "Ultra LRS Provisioned IOPS"
         bw_meter = "Ultra LRS Provisioned Throughput (MBps)"
-        capacity_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[meter_col_name] == cap_meter), retail_price_col_name].unique()
+        capacity_prices = _cup(azure_pricing, {region_col_name: region_name, meter_col_name: cap_meter})
         eligible_sizes = [num for num in base_2_sizes if num >= disk_size_val]
         # print(eligible_sizes)
         # If the filtered list is not empty, return the maximum value
@@ -4509,18 +4729,14 @@ def calc_true_cost_azure(row, azure_pricing):
         else:
             #print(f"multiple or no capacity prices {capacity_prices} for {region_name} - {cap_meter}")
             capacity_price = 0
-        iops_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[meter_col_name] == iops_meter), retail_price_col_name].unique()
+        iops_prices = _cup(azure_pricing, {region_col_name: region_name, meter_col_name: iops_meter})
         #    print(f"iops prices {iops_prices}")
         iops_price = 0
         if len(iops_prices) == 1:
             iops_price = float(iops_prices[0]) * (iops_val - 0) * hours_per_month
         else:
             print(f"multiple or no iops prices {iops_prices} for {region_name} - {iops_meter}")
-        bw_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[meter_col_name] == bw_meter), retail_price_col_name].unique()
+        bw_prices = _cup(azure_pricing, {region_col_name: region_name, meter_col_name: bw_meter})
         #    print(disk_type_name)
         #    print(f"capacity prices {capacity_prices}")
         #    print(f"iops prices {iops_prices}")
@@ -4545,10 +4761,9 @@ def calc_true_cost_azure(row, azure_pricing):
         iops_val = 500
         mbps_val = 100
 
-        lrs_snapshots = azure_pricing.loc[(azure_pricing[region_col_name] == region_name) &
-                                          (azure_pricing[product_name] == hdd_product_name) &
-                                          (azure_pricing[
-                                               sku_col_name] == lrs_snapshot_sku_name), retail_price_col_name].unique()
+        lrs_snapshots = _cup(azure_pricing, {region_col_name: region_name,
+                                             product_name: hdd_product_name,
+                                             sku_col_name: lrs_snapshot_sku_name})
         lrs_snapshot_price = 0.018
         if len(lrs_snapshots) == 1:
             lrs_snapshot_price = lrs_snapshots[0]
@@ -4612,9 +4827,7 @@ def calc_true_cost_azure(row, azure_pricing):
             return pd.Series(
                 {"total_cost": 0, "cap_cost": 0, "iops_cost": 0, "mbps_cost": 0, "snap_cost": 0, "mode": "remove",
                  "paid_capacity": 0, iops: iops_val, mbps: mbps_val})
-        capacity_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[sku_col_name] == size_class), retail_price_col_name].unique()
+        capacity_prices = _cup(azure_pricing, {region_col_name: region_name, sku_col_name: size_class})
         if len(capacity_prices) == 1:
             capacity_price = capacity_prices[0]
         else:
@@ -4637,10 +4850,9 @@ def calc_true_cost_azure(row, azure_pricing):
     elif "standard" in disk_type_name.lower():
         iops_val = 500
         mbps_val = 60
-        lrs_snapshots = azure_pricing.loc[(azure_pricing[region_col_name] == region_name) &
-                                          (azure_pricing[product_name] == hdd_product_name) &
-                                          (azure_pricing[
-                                               sku_col_name] == lrs_snapshot_sku_name), retail_price_col_name].unique()
+        lrs_snapshots = _cup(azure_pricing, {region_col_name: region_name,
+                                             product_name: hdd_product_name,
+                                             sku_col_name: lrs_snapshot_sku_name})
         lrs_snapshot_price = 0.018
         if len(lrs_snapshots) == 1:
             lrs_snapshot_price = lrs_snapshots[0]
@@ -4695,9 +4907,7 @@ def calc_true_cost_azure(row, azure_pricing):
             return pd.Series(
                 {"total_cost": 0, "cap_cost": 0, "iops_cost": 0, "mbps_cost": 0, "snap_cost": 0, "mode": "remove",
                  "paid_capacity": 0, iops: iops_val, mbps: mbps_val})
-        capacity_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[sku_col_name] == size_class), retail_price_col_name].unique()
+        capacity_prices = _cup(azure_pricing, {region_col_name: region_name, sku_col_name: size_class})
         if len(capacity_prices) == 1:
             capacity_price = capacity_prices[0]
         else:
@@ -4727,10 +4937,9 @@ def calc_true_cost_azure(row, azure_pricing):
             mbps_val = 125
         else:
             mbps_val = int(row[mbps])
-        lrs_snapshots = azure_pricing.loc[(azure_pricing[region_col_name] == region_name) &
-                                          (azure_pricing[product_name] == hdd_product_name) &
-                                          (azure_pricing[
-                                               sku_col_name] == lrs_snapshot_sku_name), retail_price_col_name].unique()
+        lrs_snapshots = _cup(azure_pricing, {region_col_name: region_name,
+                                             product_name: hdd_product_name,
+                                             sku_col_name: lrs_snapshot_sku_name})
         lrs_snapshot_price = 0.018
         if len(lrs_snapshots) == 1:
             lrs_snapshot_price = lrs_snapshots[0]
@@ -4743,17 +4952,13 @@ def calc_true_cost_azure(row, azure_pricing):
         cap_meter = "Premium LRS Provisioned Capacity"
         iops_meter = "Premium LRS Provisioned IOPS"
         bw_meter = "Premium LRS Provisioned Throughput (MBps)"
-        capacity_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[meter_col_name] == cap_meter), retail_price_col_name].unique()
+        capacity_prices = _cup(azure_pricing, {region_col_name: region_name, meter_col_name: cap_meter})
         if len(capacity_prices) == 1:
             capacity_price = float(capacity_prices[0]) * disk_size_val * hours_per_month
         else:
             print(f"multiple or no capacity prices {capacity_prices} for {region_name} - {cap_meter}")
             capacity_price = 0
-        iops_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[meter_col_name] == iops_meter), retail_price_col_name].unique()
+        iops_prices = _cup(azure_pricing, {region_col_name: region_name, meter_col_name: iops_meter})
         iops_price = 0
         if len(iops_prices) == 1:
             if iops_val > 3000:
@@ -4761,9 +4966,7 @@ def calc_true_cost_azure(row, azure_pricing):
                 iops_price = float(iops_prices[0]) * (iops_val - 3000) * hours_per_month
         else:
             print(f"multiple or no iops prices {iops_prices} for {region_name} - {iops_meter}")
-        bw_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[meter_col_name] == bw_meter), retail_price_col_name].unique()
+        bw_prices = _cup(azure_pricing, {region_col_name: region_name, meter_col_name: bw_meter})
         bw_price = 0
         if len(bw_prices) == 1:
             if mbps_val > 125:
@@ -4787,10 +4990,9 @@ def calc_true_cost_azure(row, azure_pricing):
         iops_val = 120
         mbps_val = 25
 
-        lrs_snapshots = azure_pricing.loc[(azure_pricing[region_col_name] == region_name) &
-                                          (azure_pricing[product_name] == hdd_product_name) &
-                                          (azure_pricing[
-                                               sku_col_name] == lrs_snapshot_sku_name), retail_price_col_name].unique()
+        lrs_snapshots = _cup(azure_pricing, {region_col_name: region_name,
+                                             product_name: hdd_product_name,
+                                             sku_col_name: lrs_snapshot_sku_name})
         lrs_snapshot_price = 0.018
         if len(lrs_snapshots) == 1:
             lrs_snapshot_price = lrs_snapshots[0]
@@ -4870,9 +5072,7 @@ def calc_true_cost_azure(row, azure_pricing):
                 {"total_cost": 0, "cap_cost": 0, "iops_cost": 0, "mbps_cost": 0, "snap_cost": 0, "mode": "remove",
                  "paid_capacity": 0, iops: iops_val, mbps: mbps_val})
         #    print(f"size {size_class}")
-        capacity_prices = azure_pricing.loc[
-            (azure_pricing[region_col_name] == region_name) &
-            (azure_pricing[sku_col_name] == size_class), retail_price_col_name].unique()
+        capacity_prices = _cup(azure_pricing, {region_col_name: region_name, sku_col_name: size_class})
         if len(capacity_prices) == 1:
             capacity_price = capacity_prices[0]
         else:
@@ -5778,6 +5978,22 @@ def main2(event,df_all):
             df_csv["min_ec_model"] = min_ec_model
         df_csv["mode"] = "LRS"
         df_csv["group_id"] = 0
+        # Upsize zero/negative/missing-size disks to the minimum disk size for their type
+        # (bad source data), so they are treated as a smallest-valid disk everywhere —
+        # Azure cost, Everpure capacity, and capacity metrics — instead of pricing to $0.
+        # Unsupported types get no minimum (stay 0) and are removed by the cost step below.
+        _ds  = pd.to_numeric(df_csv[disk_size], errors="coerce").fillna(0)
+        _dtl = df_csv[disk_type].astype(str).str.lower()
+        _zero = _ds <= 0
+        if _zero.any():
+            _min = pd.Series(0.0, index=df_csv.index)
+            _min = _min.mask(_dtl.str.contains("standard", na=False), 32)    # Standard HDD S4
+            _min = _min.mask(_dtl.str.contains("standardssd", na=False), 4)  # StandardSSD E1 (overrides)
+            _min = _min.mask(_dtl.str.contains("premium", na=False), 4)      # Premium P1
+            _min = _min.mask(_dtl.str.contains("premiumv2", na=False), 1)    # Premium SSD v2 min (overrides)
+            _min = _min.mask(_dtl.str.contains("ultra", na=False), 4)        # Ultra min
+            df_csv.loc[_zero, disk_size] = _min[_zero]
+        _price_lookup_cache.clear()   # fresh cache per parse (pricing is refetched each run)
         df_csv[["total_cost",
                 "cap_cost",
                 "iops_cost",
@@ -5787,6 +6003,13 @@ def main2(event,df_all):
                 "paid_capacity",
                 iops,
                 mbps]] = df_csv.apply(calc_true_cost_azure, axis=1, azure_pricing=azure_pricing, )
+        # Remove disks the cost engine can't price — unsupported/invalid disk type, or
+        # a size beyond the largest supported tier — flagged mode == "remove". They are
+        # dropped here so they never form a group or show as $0-cost rows.
+        _removed = int((df_csv["mode"] == "remove").sum())
+        if _removed:
+            print(f"parse: removed {_removed} disk(s) with unsupported type or unpriceable size")
+            df_csv = df_csv[df_csv["mode"] != "remove"].copy()
 
     if az_mapping_flag:
         df_csv[["true_az", a_name]] = df_csv.apply(calc_true_az, axis=1)
@@ -5798,7 +6021,14 @@ def main2(event,df_all):
         df_csv[root_flag] = False
         # print("tree 01")
     elif no_disk_usage_flag and no_device_flag:  # Only Root flag is set
-        df_csv[root_flag] = df_csv[root_flag].fillna(False)  # no other action required
+        # Any non-null / non-empty value in the OS-disk column marks an OS disk
+        # (root_flag = True). null/blank — or an explicit "false" — means a data disk
+        # (False). This normalizes varied source encodings ("True", "OS", an OS name,
+        # etc.) to a boolean while honoring "false"/"False" as not-an-OS-disk.
+        _osv = df_csv[root_flag]
+        _s = _osv.astype(str).str.strip().str.lower()
+        _non_os = ("", "nan", "null", "false")   # data-disk indicators
+        df_csv[root_flag] = _osv.notna() & ~_s.isin(_non_os)
         # print("tree 02")
     elif no_root_flag_flag:  # Only disk usage flag or device flag
         df_csv[root_flag] = df_csv.apply(convert_disk_usage_to_root_flag, axis=1)
@@ -5838,6 +6068,16 @@ def main2(event,df_all):
     account_name_list = df_csv[a_name].unique()
     # print(f"account list {account_name_list}")
     compute_count = 0
+    # Precompute every VM's usage aggregates in a SINGLE pass. Previously the group
+    # loops ran a full df.apply(calc_compute_usage) once per VM (O(VMs x rows) — the
+    # dominant cost for large inventories); now the loop just reads vm_data_all[cp].
+    df_csv[compute] = df_csv[compute].fillna("not_given")
+    vm_data_all = {}
+    if count_compute_flag:
+        df_csv.apply(calc_compute_usage_all, axis=1, vm_data=vm_data_all,
+                     compute_column_name=compute, iops_column_name=iops, bw_column_name=mbps,
+                     disk_size_column_name=disk_size, disk_type_column_name=disk_type,
+                     min_sku_value=min_ec_model)
     for an in account_name_list:
         # print(f"name {an}")
         if supported_region_list_flag:
@@ -5916,13 +6156,7 @@ def main2(event,df_all):
                                               (df_csv[disk_type] == dt) & \
                                               (df_csv[a_name] == an) & \
                                               (df_csv[other2_column_name] == nt) & \
-                                              ((df_csv[root_flag] == False) |
-                                               ((df_csv[root_flag] == True) & (
-                                                   df_csv[host_type].str.contains("Windows", case=False)) &
-                                                (df_csv[disk_size] > win_threshold)) |
-                                               ((df_csv[root_flag] == True) & (
-                                                   df_csv[host_type].str.contains("Linux", case=False)) &
-                                                (df_csv[disk_size] > lin_threshold))) & \
+                                              (df_csv[root_flag] == False) & \
                                               (df_csv[disk_status].str.lower().isin(valid_disk_status))
                             # print(f"matched condition {len(df_csv[group_condition])} group id {group_id}")
                             # print("checking shape for condition")
@@ -5939,13 +6173,8 @@ def main2(event,df_all):
                                 unique_compute_instances = len(unique_compute_instances_list)
                                 for cp in unique_compute_instances_list:
                                     if not cp == "not_given":
-                                        vm_data = {}
+                                        vm_data = vm_data_all   # precomputed once, above (was a per-VM full-frame apply)
 
-                                        df_csv.apply(calc_compute_usage, axis=1, vm_name=cp,
-                                                     compute_column_name=compute, iops_column_name=iops,
-                                                     bw_column_name=mbps, disk_size_column_name=disk_size,
-                                                     disk_type_column_name=disk_type, vm_data=vm_data,
-                                                     min_sku_value=min_ec_model)
                                         vm_perf_tier = 0
                                         if (vm_data[cp].get("non_perf_tot_iops") > 999 or vm_data[cp].get(
                                                 "non_perf_tot_bw") > 124):
@@ -6009,13 +6238,7 @@ def main2(event,df_all):
                                                   (df_csv[disk_type] == dt) & \
                                                   (df_csv[a_name] == an) & \
                                                   (df_csv[other2_column_name] == nt) & \
-                                                  ((df_csv[root_flag] == False) |
-                                                   ((df_csv[root_flag] == True) & (
-                                                       df_csv[host_type].str.contains("Windows", case=False)) &
-                                                    (df_csv[disk_size] > win_threshold)) |
-                                                   ((df_csv[root_flag] == True) & (
-                                                       df_csv[host_type].str.contains("Linux", case=False)) &
-                                                    (df_csv[disk_size] > lin_threshold))) & \
+                                                  (df_csv[root_flag] == False) & \
                                                   (df_csv[disk_status].str.lower().isin(valid_disk_status))
 
                                 df_csv['group_id'] = df_csv['group_id'].mask(group_condition, group_id)
@@ -6151,6 +6374,58 @@ def calc_compute_usage(row, vm_name, compute_column_name, iops_column_name, bw_c
                     "vm_perf_tier": perf_type,
                     "min_ec_model": min_sku_value}
         # print(f"vm data {vm_data[vm_name]}")
+    return
+
+
+def calc_compute_usage_all(row, vm_data, compute_column_name, iops_column_name, bw_column_name,
+                           disk_size_column_name, disk_type_column_name, min_sku_value):
+    """One-pass equivalent of calc_compute_usage: buckets EACH row into its own VM's
+    aggregate, so a SINGLE df.apply builds vm_data for every VM at once — instead of
+    running a full-frame apply once per VM (which was O(VMs x rows)). The per-row
+    accumulation logic is identical to calc_compute_usage (same running sums, same
+    NaN propagation, same disk-type ordering), so results are unchanged."""
+    vm_name = row[compute_column_name]
+    if vm_name == "not_given":
+        return
+    new_iops = row[iops_column_name]
+    new_bw = row[bw_column_name]
+    new_size = row[disk_size_column_name]
+    new_type = row[disk_type_column_name]
+    if vm_name in vm_data:
+        if "Standard" in new_type:
+            vm_data[vm_name]["non_perf_tot_iops"] = vm_data[vm_name]["non_perf_tot_iops"] + new_iops
+            vm_data[vm_name]["non_perf_tot_bw"] = vm_data[vm_name]["non_perf_tot_bw"] + new_bw
+            vm_data[vm_name]["non_perf_num_vols"] = vm_data[vm_name]["non_perf_num_vols"] + 1
+            vm_data[vm_name]["non_perf_tot_cap"] = vm_data[vm_name]["non_perf_tot_cap"] + new_size
+            if not new_type in vm_data[vm_name].get('non_perf_disk_types', []):
+                disk_types = vm_data[vm_name].get('non_perf_disk_types', [])
+                disk_types.append(new_type)
+                vm_data[vm_name]['non_perf_disk_types'] = disk_types
+        else:
+            vm_data[vm_name]["perf_tot_iops"] = vm_data[vm_name]["perf_tot_iops"] + new_iops
+            vm_data[vm_name]["perf_tot_bw"] = vm_data[vm_name]["perf_tot_bw"] + new_bw
+            vm_data[vm_name]["perf_num_vols"] = vm_data[vm_name]["perf_num_vols"] + 1
+            vm_data[vm_name]["perf_tot_cap"] = vm_data[vm_name]["perf_tot_cap"] + new_size
+            if not new_type in vm_data[vm_name].get('perf_disk_types', []):
+                disk_types = vm_data[vm_name].get('perf_disk_types', [])
+                disk_types.append(new_type)
+                vm_data[vm_name]['perf_disk_types'] = disk_types
+    else:
+        if "Standard" in new_type:
+            perf_type = 0
+            vm_data[vm_name] = {
+                "non_perf_tot_iops": new_iops, "non_perf_tot_bw": new_bw, "non_perf_num_vols": 1,
+                "non_perf_disk_types": [new_type], "non_perf_tot_cap": new_size,
+                "perf_tot_iops": 0, "perf_tot_bw": 0, "perf_num_vols": 0, "perf_disk_types": [],
+                "perf_tot_cap": 0, "vm_perf_tier": perf_type, "min_ec_model": min_sku_value}
+        else:
+            perf_type = 1
+            vm_data[vm_name] = {
+                "non_perf_tot_iops": 0, "non_perf_tot_bw": 0, "non_perf_num_vols": 0,
+                "non_perf_disk_types": [], "non_perf_tot_cap": 0,
+                "perf_tot_iops": new_iops, "perf_tot_bw": new_bw, "perf_num_vols": 1,
+                "perf_disk_types": [new_type], "perf_tot_cap": new_size,
+                "vm_perf_tier": perf_type, "min_ec_model": min_sku_value}
     return
 
 def return_sum_capcaity(df,gid,disk_size_col_name):
@@ -7046,6 +7321,17 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
             azure_native = cs.get("Y1 Azure Native Cost", 0)
             save_ratio = (savings / azure_native) if azure_native else 0
 
+            # Azure Managed Disk cost breakdown for this group (from the parsed data:
+            # capacity, performance = provisioned IOPS + throughput, and snapshots).
+            def _grp_cost_sum(col):
+                if col in df_parsed.columns:
+                    return float(pd.to_numeric(df_parsed.loc[df_parsed["group_id"] == g, col],
+                                               errors="coerce").fillna(0).sum())
+                return 0.0
+            azure_md_cap  = _grp_cost_sum("cap_cost")
+            azure_md_perf = _grp_cost_sum("iops_cost") + _grp_cost_sum("mbps_cost")
+            azure_md_snap = _grp_cost_sum("snap_cost")
+
             group_rows.append({
                 "desc": g,
                 "Region": row["region"],
@@ -7059,6 +7345,9 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                 "Y1 PSC Res $": row["ec_tot_cost"] - row["license_cost"],
                 "Y1 PSC Tot $": row["ec_tot_cost"],
                 "Y1 Azure Native $": row["azure_native_cost"],
+                "Y1 Azure MD Capacity $": azure_md_cap,
+                "Y1 Azure MD Performance $": azure_md_perf,
+                "Y1 Azure MD Snapshots $": azure_md_snap,
                 "Y1 PSC Licensed Capacity": row["ec_capacity_size"],
                 "Y1 PSC Array Count": row["number_of_arrays"],
                 "Azure Paid Capacity": orig_cap,
@@ -7135,8 +7424,18 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
     #    ignored for array count and every array is billed at the largest tier.
     ignore_iops         = bool(params.get("ignore_iops_provisioned", False))
     consider_iops       = not ignore_iops
-    consider_throughput = bool(params.get("consider_throughput", True))
+    # Throughput handling: "on" (size arrays to MBps), "off" (ignore MBps for sizing,
+    # bill every array at the largest tier), or "optimized" (per group, use whichever
+    # of on/off yields the lower cost). Falls back to the legacy consider_throughput
+    # bool for older callers.
+    throughput_mode = str(params.get("throughput_mode", "")).strip().lower()
+    if throughput_mode not in ("on", "off", "optimized"):
+        throughput_mode = "on" if bool(params.get("consider_throughput", True)) else "off"
     growth_rate  = float(params.get("growth", 0.2) or 0)
+    # Monthly snapshot rate uplifts the effective (licensed/billed) capacity, mirroring
+    # the Dedicated engine (tco_by_group_y1): licensed capacity = eff_cap * (1 + rate/2).
+    # rate == 0 -> factor 1.0 (no snapshot capacity).
+    snap_rate    = float(params.get("monthly_snapshot_rate", 0.0) or 0.0)
 
     if not ecan_config:
         print("Azure Native: ecan_config is empty — cannot size arrays or price capacity.")
@@ -7248,7 +7547,9 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
         num_compute = _gsum(g, compute_col)
         azure_native = _gsum(g, "total_cost")
 
-        eff_cap = orig_cap * efficiency
+        # Effective capacity includes the snapshot uplift (1 + snap_rate/2), matching
+        # the Dedicated engine so the snapshot-rate control affects Azure Native too.
+        eff_cap = orig_cap * efficiency * (1 + snap_rate / 2)
         # Minimum billable capacity: any group below minimum_capacity is billed at
         # minimum_capacity, and flagged so the condition is visible in the results.
         min_cap_applied = eff_cap < minimum_capacity
@@ -7267,30 +7568,41 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
         cap_per_array  = max_raw * est_drr
         arrays_by_cap  = max(1, math.ceil(billed_cap / cap_per_array)) if cap_per_array > 0 else 1
 
-        # Array count: capacity always counts; IOPS and throughput count only when
-        # their respective toggles are on.
-        drivers = [arrays_by_cap]
-        if consider_iops:       drivers.append(arrays_by_iops)
-        if consider_throughput: drivers.append(arrays_by_mbps)
-        num_arrays = max(drivers)
+        # Size this group for a given throughput treatment. Capacity always drives
+        # arrays; IOPS when considered; MBps only when use_thr. When use_thr is False,
+        # every array is billed at the largest MBps tier (worst case); when True, each
+        # array is sized to the smallest tier covering its right-sized load.
+        def _size_group(use_thr):
+            drivers = [arrays_by_cap]
+            if consider_iops: drivers.append(arrays_by_iops)
+            if use_thr:       drivers.append(arrays_by_mbps)
+            n = max(drivers)
+            if not use_thr:
+                ambps = max_tier_mbps
+            else:
+                per_array_iops = eff_iops / n if n else 0
+                per_array_mbps = eff_mbps / n if n else 0
+                ambps = max_tier_mbps
+                for m, i in tiers:
+                    if m >= per_array_mbps and (not consider_iops or i >= per_array_iops):
+                        ambps = m
+                        break
+            return n, ambps, n * ambps * per_mbps_cost
 
-        if not consider_throughput:
-            # Throughput ignored for sizing — bill every array at the largest
-            # (default) MBps tier.
-            array_mbps = max_tier_mbps
+        if throughput_mode == "optimized":
+            # Per group: pick whichever treatment costs less (capacity cost is the
+            # same either way, so this is min throughput cost).
+            on_n, on_m, on_t   = _size_group(True)
+            off_n, off_m, off_t = _size_group(False)
+            if off_t < on_t:
+                num_arrays, array_mbps, throughput_cost, thr_choice = off_n, off_m, off_t, "off"
+            else:
+                num_arrays, array_mbps, throughput_cost, thr_choice = on_n, on_m, on_t, "on"
         else:
-            # Per-array MBps: smallest tier whose MBps (and IOPS, if considered)
-            # covers the per-array right-sized load; fall back to the largest tier.
-            per_array_iops = eff_iops / num_arrays if num_arrays else 0
-            per_array_mbps = eff_mbps / num_arrays if num_arrays else 0
-            array_mbps = max_tier_mbps
-            for m, i in tiers:
-                if m >= per_array_mbps and (not consider_iops or i >= per_array_iops):
-                    array_mbps = m
-                    break
+            num_arrays, array_mbps, throughput_cost = _size_group(throughput_mode == "on")
+            thr_choice = throughput_mode
 
         capacity_cost   = billed_cap * cap_rate
-        throughput_cost = num_arrays * array_mbps * per_mbps_cost
         everpure_total  = capacity_cost + throughput_cost
 
         savings    = azure_native - everpure_total
@@ -7309,6 +7621,11 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
             "Y1 PSC Res $": 0,                # no infrastructure cost in Azure Native
             "Y1 PSC Tot $": everpure_total,
             "Y1 Azure Native $": azure_native,
+            # Azure Managed Disk cost breakdown (from parsed data): capacity,
+            # performance (provisioned IOPS + throughput), and snapshots.
+            "Y1 Azure MD Capacity $": _gsum(g, "cap_cost"),
+            "Y1 Azure MD Performance $": _gsum(g, "iops_cost") + _gsum(g, "mbps_cost"),
+            "Y1 Azure MD Snapshots $": _gsum(g, "snap_cost"),
             "Y1 PSC Licensed Capacity": billed_cap,
             "Y1 PSC Array Count": num_arrays,
             "Azure Paid Capacity": orig_cap,
@@ -7316,6 +7633,7 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
             "Num Volumes": int((df_parsed["group_id"] == g).sum()),
             "Y1 Capacity $": capacity_cost,
             "Y1 Throughput $": throughput_cost,
+            "Throughput Mode": thr_choice,   # "on"/"off" actually used (for optimized, the winner)
             "Min Capacity Applied": "Yes" if min_cap_applied else "No",
         })
 
@@ -7346,7 +7664,7 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
             "overprovisioned_iops_rate": op_iops_rate, "overprovisioned_mbps_rate": op_mbps_rate,
             "arrays_by_iops": arrays_by_iops, "arrays_by_mbps": arrays_by_mbps,
             "arrays_by_cap": arrays_by_cap,
-            "consider_iops": bool(consider_iops), "consider_throughput": bool(consider_throughput),
+            "consider_iops": bool(consider_iops), "throughput_mode": throughput_mode, "throughput_choice": thr_choice,
             "drr": drr, "estimated_drr": est_drr, "efficiency": efficiency,
             "original_capacity": orig_cap, "effective_capacity": round(eff_cap, 2),
             "min_capacity_applied": bool(min_cap_applied),

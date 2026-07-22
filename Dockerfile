@@ -51,4 +51,8 @@ EXPOSE 5000
 # Serve with waitress (production WSGI server), not Flask's dev server.
 # `waitress-serve` is the console script installed by the waitress package.
 ENTRYPOINT ["tini", "--"]
-CMD ["waitress-serve", "--host=0.0.0.0", "--port=5000", "--threads=8", "app:app"]
+# --channel-timeout is raised well above the default (120s) so long-running parses
+# of large inventories (e.g. tens of thousands of disks, each needing live Azure
+# retail-price lookups) don't have their HTTP connection closed mid-request
+# (which surfaces in the browser as "Failed to fetch").
+CMD ["waitress-serve", "--host=0.0.0.0", "--port=5000", "--threads=8", "--channel-timeout=3600", "app:app"]
