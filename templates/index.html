@@ -1156,7 +1156,7 @@ body.theme-kyndryl {
             </div>
 
             <!-- Monthly snapshot rate -->
-            <div style="display:flex;flex-direction:column;gap:7px;">
+            <div id="field-snapshot" style="display:flex;flex-direction:column;gap:7px;">
               <div style="display:flex;justify-content:space-between;align-items:baseline;">
                 <label style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Monthly Snapshot Rate</label>
                 <span style="font-size:.78rem;font-weight:700;color:var(--accent);font-family:var(--font-mono);" id="val-snapshot">10%</span>
@@ -4129,16 +4129,30 @@ function resetGuiToDefaults(delayMs) {
 
   function renderDetail(m) {
     setKpis(m);
-    // Show the dataset's parse-time snapshot rate and pre-fill the analysis slider with it.
-    if (m.parsed_snapshot_rate != null) {
-      const pct = Math.round(m.parsed_snapshot_rate * 100);
-      const srEl = document.getElementById("results-sel-snaprate");
-      if (srEl) srEl.textContent = pct + "%";
-      const slider = document.getElementById("param-snapshot");
-      const label  = document.getElementById("val-snapshot");
-      if (slider) { slider.value = pct; if (label) label.textContent = pct + "%"; }
-      if (typeof updateParamsSummary === "function") { try { updateParamsSummary(); } catch(_){} }
+    // Datasets parsed with measured snapshot capacity ignore the modeled snapshot-rate
+    // slider — grey it out and drop its value from the params summary for such datasets.
+    window.__useMeasuredSnapshot = !!m.use_measured_snapshot;
+    const slider = document.getElementById("param-snapshot");
+    const label  = document.getElementById("val-snapshot");
+    const snapField = document.getElementById("field-snapshot");
+    const srEl = document.getElementById("results-sel-snaprate");
+    if (m.use_measured_snapshot) {
+      if (slider) { slider.disabled = true; }
+      if (label)  label.textContent = "measured";
+      if (snapField) { snapField.style.opacity = ".45"; snapField.title = "This dataset uses measured snapshot capacity; the modeled snapshot rate does not apply."; }
+      if (srEl) srEl.textContent = "measured";
+    } else {
+      if (slider) slider.disabled = false;
+      if (snapField) { snapField.style.opacity = ""; snapField.title = ""; }
+      // Pre-fill the slider with the dataset's parse-time snapshot rate.
+      if (m.parsed_snapshot_rate != null) {
+        const pct = Math.round(m.parsed_snapshot_rate * 100);
+        if (srEl) srEl.textContent = pct + "%";
+        if (slider) slider.value = pct;
+        if (label)  label.textContent = pct + "%";
+      }
     }
+    if (typeof updateParamsSummary === "function") { try { updateParamsSummary(); } catch(_){} }
     renderGroupTable(m.group_breakdown || []);
 
     // Region table
@@ -4601,12 +4615,14 @@ function resetGuiToDefaults(delayMs) {
     const g = document.getElementById("param-growth").value;
     const s = document.getElementById("param-snapshot").value;
     const el = document.getElementById("params-summary-text");
+    // Measured-snapshot datasets ignore the modeled rate — show "Snap measured".
+    const snapTxt = window.__useMeasuredSnapshot ? "Snap measured" : `Snap ${s}%`;
     if (analysisMethod === "azure_native") {
       const drrTxt = drrBucket === "high" ? "DRR ≥2.0" : "DRR <2.0";
-      el.textContent = `Azure Native  ·  Growth ${g}%  ·  ${drrTxt}  ·  Snap ${s}%`;
+      el.textContent = `Azure Native  ·  Growth ${g}%  ·  ${drrTxt}  ·  ${snapTxt}`;
     } else {
       const d = parseFloat(document.getElementById("param-drr").value).toFixed(1);
-      el.textContent = `Dedicated  ·  Growth ${g}%  ·  DRR ${d}×  ·  Snap ${s}%  ·  ${activeSku}  ·  IOPS ${iopsMode}`;
+      el.textContent = `Dedicated  ·  Growth ${g}%  ·  DRR ${d}×  ·  ${snapTxt}  ·  ${activeSku}  ·  IOPS ${iopsMode}`;
     }
   }
   updateParamsSummary();

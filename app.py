@@ -2208,6 +2208,9 @@ def _compute_detail_metrics(df, cfg_data):
         metrics["parsed_snapshot_rate"] = float((cfg_data or {}).get("monthly_snapshot_rate", 0.1))
     except (TypeError, ValueError):
         metrics["parsed_snapshot_rate"] = 0.1
+    # Whether this dataset was parsed with measured snapshot capacity (the modeled
+    # snapshot-rate slider is irrelevant for it — the UI greys it out).
+    metrics["use_measured_snapshot"] = bool((cfg_data or {}).get("use_measured_snapshot", False))
     metrics["num_groups"] = int(df["group_id"].nunique())
     if no_region_flag:
         metrics["region_breakdown"] = []
