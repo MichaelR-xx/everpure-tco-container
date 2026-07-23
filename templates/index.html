@@ -1454,6 +1454,7 @@ body.theme-kyndryl {
                 <span style="font-size:.75rem;color:var(--muted);">Run: <strong id="results-sel-datetime" style="color:var(--text);">—</strong></span>
                 <span style="font-size:.75rem;color:var(--muted);">Size: <strong id="results-sel-size" style="color:var(--text);">—</strong></span>
                 <span style="font-size:.75rem;color:var(--muted);" title="Monthly snapshot rate baked into this dataset at parse time. Pre-fills the Run Analysis snapshot slider.">Snapshot rate: <strong id="results-sel-snaprate" style="color:var(--accent);">—</strong></span>
+                <span id="results-sel-osexcl" style="display:none;font-size:.75rem;color:var(--muted);" title="OS/root disks removed during parsing (excluded from the analysis).">OS disks excluded: <strong style="color:var(--warning);"></strong></span>
               </div>
             </div>
 
@@ -4153,6 +4154,19 @@ function resetGuiToDefaults(delayMs) {
       }
     }
     if (typeof updateParamsSummary === "function") { try { updateParamsSummary(); } catch(_){} }
+    // OS/root disks excluded during parsing (count + capacity), if recorded.
+    const osEl = document.getElementById("results-sel-osexcl");
+    if (osEl) {
+      const n = m.os_excluded_count;
+      if (n != null && n > 0) {
+        const cap = m.os_excluded_capacity;
+        const capTxt = (cap != null) ? " (" + Math.round(cap).toLocaleString() + " GiB)" : "";
+        osEl.querySelector("strong").textContent = Number(n).toLocaleString() + capTxt;
+        osEl.style.display = "";
+      } else {
+        osEl.style.display = "none";
+      }
+    }
     renderGroupTable(m.group_breakdown || []);
 
     // Region table

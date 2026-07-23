@@ -2211,6 +2211,9 @@ def _compute_detail_metrics(df, cfg_data):
     # Whether this dataset was parsed with measured snapshot capacity (the modeled
     # snapshot-rate slider is irrelevant for it — the UI greys it out).
     metrics["use_measured_snapshot"] = bool((cfg_data or {}).get("use_measured_snapshot", False))
+    # OS/root disks excluded at parse time (count + capacity), if recorded.
+    metrics["os_excluded_count"] = (cfg_data or {}).get("os_excluded_count")
+    metrics["os_excluded_capacity"] = (cfg_data or {}).get("os_excluded_capacity")
     metrics["num_groups"] = int(df["group_id"].nunique())
     if no_region_flag:
         metrics["region_breakdown"] = []
@@ -6110,6 +6113,15 @@ def main2(event,df_all):
     else:
         df_csv[a_name] = "blank"
         # account_name_list = ["none"]
+    # Capture OS/root disks being excluded (root_flag True) and their capacity, so the
+    # Results page can report it — these rows never get grouped and are dropped below.
+    try:
+        _os_mask = (df_csv[root_flag] == True)
+        event["os_excluded_count"] = int(_os_mask.sum())
+        event["os_excluded_capacity"] = round(float(pd.to_numeric(
+            df_csv.loc[_os_mask, disk_size], errors="coerce").fillna(0).sum()), 2)
+    except Exception as exc:
+        print(f"Warning: could not compute OS-disk exclusion stats: {exc}")
     account_name_list = df_csv[a_name].unique()
     # print(f"account list {account_name_list}")
     compute_count = 0
