@@ -743,6 +743,118 @@ def tco_parsed_download():
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
+@app.route("/api/tco/xlsx-download", methods=["POST"])
+@login_required
+def tco_xlsx_download():
+    """Export a TCO run's per-group data as an .xlsx workbook with the commercial
+    settings as EDITABLE cells and live formulas — change a setting in Excel and the
+    per-group figures, inclusion, and the summary all recalculate."""
+    global s3_bucket
+    body = request.get_json(force=True) or {}
+    key  = str(body.get("group_summary_key", "")).strip()
+    if not key.endswith("group_summary.csv") or "/tco/" not in key:
+        return jsonify({"error": "A valid group_summary_key is required."}), 400
+    p = body.get("params", {}) or {}
+    def _f(v, d=0.0):
+        try: return float(v)
+        except (TypeError, ValueError): return d
+    eDisc  = _f(p.get("everpure_discount"));  margin = _f(p.get("partner_margin"))
+    aDisc  = _f(p.get("azure_discount"));     minSav = _f(p.get("min_savings"))
+    months = int(_f(p.get("months"), 12) or 12)
+    try:
+        obj = _s3_client().get_object(Bucket=s3_bucket, Key=key)
+        df = pd.read_csv(StringIO(obj["Body"].read().decode("utf-8")), on_bad_lines="warn")
+        df.columns = [c.replace("pscd", "ec") if isinstance(c, str) else c for c in df.columns]
+    except ClientError as exc:
+        code = exc.response["Error"]["Code"]
+        if code in ("404", "NoSuchKey"):
+            return jsonify({"error": "group_summary.csv not found for this TCO."}), 404
+        return jsonify({"error": f"AWS error: {exc.response['Error']['Message']}"}), 500
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    except Exception as exc:
+        return jsonify({"error": f"Excel export unavailable (openpyxl not installed): {exc}"}), 500
+
+    def col(name):
+        return pd.to_numeric(df[name], errors="coerce").fillna(0) if name in df.columns else pd.Series([0] * len(df))
+    license0 = col("Y1 PSC Lic $"); infra0 = col("Y1 PSC Res $"); azure0 = col("Y1 Azure Native $")
+    origcap  = col("Original Capacity"); liccap = col("Y1 PSC Licensed Capacity"); arrays = col("Y1 PSC Array Count")
+    desc = df["desc"].astype(str) if "desc" in df.columns else pd.Series([""] * len(df))
+    region = df["Region"].astype(str) if "Region" in df.columns else pd.Series([""] * len(df))
+    account = df["Account"].astype(str) if "Account" in df.columns else pd.Series([""] * len(df))
+    n = len(df)
+
+    wb = Workbook()
+    bold = Font(bold=True); hdrfill = PatternFill("solid", fgColor="1F3B4D"); hdrfont = Font(bold=True, color="FFFFFF")
+    inputfill = PatternFill("solid", fgColor="FFF2CC"); usd = '#,##0'; pct = '0.0%'
+    S = wb.active; S.title = "Summary"
+    S["A1"] = "Everpure vs Azure — TCO Summary"; S["A1"].font = Font(bold=True, size=14)
+    S["A3"] = "Commercial settings (edit — the Data sheet & totals below recalculate):"; S["A3"].font = bold
+    inputs = [("Everpure Discount %", eDisc * 100), ("Partner Margin %", margin * 100),
+              ("Azure Discount %", aDisc * 100), ("Min Savings Rate %", minSav * 100), ("Months", months)]
+    for i, (lbl, val) in enumerate(inputs):
+        r = 4 + i
+        S[f"A{r}"] = lbl; S[f"B{r}"] = val; S[f"B{r}"].fill = inputfill; S[f"B{r}"].font = bold
+    # named cells for readability
+    EDISC, MARGIN, ADISC, MINSAV, MONTHS = "Summary!$B$4", "Summary!$B$5", "Summary!$B$6", "Summary!$B$7", "Summary!$B$8"
+    last = n + 1  # data rows 2..last on the Data sheet
+    incl_rng = f"Data!$O$2:$O${last}"
+    def sumifs(vals_col):
+        return f"=SUMIFS(Data!${vals_col}$2:${vals_col}${last},{incl_rng},1)"
+    S["A10"] = "Results (included groups, annualized over Months):"; S["A10"].font = bold
+    rows = [
+        ("Groups included",       f"=SUMIF({incl_rng},1)", '#,##0'),
+        ("Arrays (included)",     sumifs("F"), '#,##0'),
+        ("Original capacity (GiB)", sumifs("D"), '#,##0'),
+        ("Everpure licensed capacity (GiB)", sumifs("E"), '#,##0'),
+        ("Azure cost",            f"=({sumifs('L')[1:]})*{MONTHS}", usd),
+        ("Everpure cost",         f"=({sumifs('K')[1:]})*{MONTHS}", usd),
+        ("Savings",               "=B15-B16", usd),
+        ("Savings rate",          "=IF(B15<>0,B17/B15,0)", pct),
+    ]
+    for i, (lbl, formula, fmt) in enumerate(rows):
+        r = 11 + i
+        S[f"A{r}"] = lbl; S[f"B{r}"] = formula; S[f"B{r}"].number_format = fmt
+    for r in range(4, 19):
+        S[f"A{r}"].alignment = Alignment(horizontal="left")
+    S.column_dimensions["A"].width = 34; S.column_dimensions["B"].width = 18
+
+    D = wb.create_sheet("Data")
+    heads = ["Group", "Region", "Account", "Original Cap (GiB)", "EC Licensed Cap (GiB)", "Arrays",
+             "Everpure Lic $ (base)", "Everpure Infra $", "Azure $ (base)",
+             "Adj Everpure Lic $", "Everpure Total $", "Adj Azure $", "Savings $", "Savings %", "Included"]
+    for j, h in enumerate(heads, start=1):
+        c = D.cell(row=1, column=j, value=h); c.fill = hdrfill; c.font = hdrfont
+    for i in range(n):
+        r = i + 2
+        D.cell(r, 1, desc.iloc[i]); D.cell(r, 2, region.iloc[i]); D.cell(r, 3, account.iloc[i])
+        D.cell(r, 4, float(origcap.iloc[i])); D.cell(r, 5, float(liccap.iloc[i])); D.cell(r, 6, float(arrays.iloc[i]))
+        D.cell(r, 7, round(float(license0.iloc[i]), 2)); D.cell(r, 8, round(float(infra0.iloc[i]), 2)); D.cell(r, 9, round(float(azure0.iloc[i]), 2))
+        D.cell(r, 10, f"=G{r}*(1-{EDISC}/100)*(1+{MARGIN}/100)")
+        D.cell(r, 11, f"=J{r}+H{r}")
+        D.cell(r, 12, f"=I{r}*(1-{ADISC}/100)")
+        D.cell(r, 13, f"=L{r}-K{r}")
+        D.cell(r, 14, f"=IF(L{r}<>0,M{r}/L{r},IF(M{r}<0,-1,0))")
+        D.cell(r, 15, f"=IF(N{r}>={MINSAV}/100,1,0)")
+        for cc in (7, 8, 9, 10, 11, 12, 13):
+            D.cell(r, cc).number_format = usd
+        D.cell(r, 14).number_format = pct
+    for j, w in {1: 26, 2: 16, 3: 22, 4: 15, 5: 18, 6: 8, 7: 16, 8: 14, 9: 14, 10: 16, 11: 16, 12: 14, 13: 14, 14: 11, 15: 9}.items():
+        D.column_dimensions[chr(64 + j)].width = w
+    D.freeze_panes = "A2"
+
+    buf = BytesIO(); wb.save(buf); buf.seek(0)
+    scenario = key.split("/")[3] if len(key.split("/")) > 3 else "tco"
+    tco_id   = key.split("/tco/")[1].split("/")[0] if "/tco/" in key else "run"
+    fname = f"tco_{scenario}_{tco_id}.xlsx".replace(" ", "_")
+    return Response(buf.getvalue(),
+                    mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
 @app.route("/api/tco/delete", methods=["POST"])
 @login_required
 def tco_delete():

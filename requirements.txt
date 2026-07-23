@@ -7,6 +7,9 @@ boto3==1.43.36
 pandas==3.0.3
 requests==2.34.2
 
+# Excel export (TCO Data view -> .xlsx with editable commercial-setting cells + formulas).
+openpyxl==3.1.5
+
 # Production WSGI server used by the container image (Flask's built-in server is
 # for development only). Cross-platform, pure-Python.
 waitress==3.0.2

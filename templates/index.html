@@ -6447,6 +6447,7 @@ function resetGuiToDefaults(delayMs) {
         <span>Page ${tcoDataPage} / ${_pages}</span>
         <button class="btn-sm" id="tco-data-next" style="padding:3px 10px;" ${tcoDataPage >= _pages ? "disabled" : ""}>Next ›</button>
         <span style="color:var(--text);">Showing ${_total ? _start + 1 : 0}–${_end} of ${_total} groups</span>
+        <button class="btn-sm save" id="tco-data-xlsx" style="margin-left:auto;padding:4px 12px;white-space:nowrap;" title="Download an Excel workbook with editable commercial-setting cells and live formulas (change a setting in Excel to recalculate).">⬇ Download Excel (adjustable)</button>
       </div>`;
     let html = `<div style="font-size:.66rem;color:var(--muted);margin-bottom:8px;">Costs shown for ${months} month${months === 1 ? "" : "s"} (steady-state, fully migrated).${projMigPlanName ? ` Migration plan applied: <strong>${escHtml(projMigPlanName)}</strong> — see the Growth Projection for the phased trajectory.` : ""} “Mig Month” is the group's migration start month from the applied plan (or the Evaluate button).</div>
       ${pager}
@@ -6531,6 +6532,38 @@ function resetGuiToDefaults(delayMs) {
     if (_pv) _pv.addEventListener("click", () => { if (tcoDataPage > 1) { tcoDataPage--; _rerender(); } });
     const _nx = $("tco-data-next");
     if (_nx) _nx.addEventListener("click", () => { tcoDataPage++; _rerender(); });
+    const _xl = $("tco-data-xlsx");
+    if (_xl) _xl.addEventListener("click", downloadDataXlsx);
+  }
+
+  async function downloadDataXlsx() {
+    if (!selectedRun) { showMsgs(detailMsgs, ["Select a TCO run first."], "error"); return; }
+    const btn = $("tco-data-xlsx"); const old = btn ? btn.textContent : "";
+    if (btn) { btn.disabled = true; btn.textContent = "Building…"; }
+    try {
+      const params = {
+        everpure_discount: num($("tco-everpure-discount").value) / 100,
+        partner_margin:    num($("tco-partner-margin").value) / 100,
+        azure_discount:    num($("tco-azure-discount").value) / 100,
+        min_savings:       num($("tco-min-savings").value) / 100,
+        months:            lastMonths || 12,
+      };
+      const res = await fetch("/api/tco/xlsx-download", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_summary_key: selectedRun.group_summary_key, params }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Export failed."); }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `tco_${selectedRun.scenario || "run"}_${selectedRun.tco_id || "run"}.xlsx`.replace(/[^\w.\-]+/g, "_");
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    } catch (e) {
+      showMsgs(detailMsgs, ["Excel export error: " + e.message], "error");
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = old; }
+    }
   }
 
   function renderChart(tot, months) {
