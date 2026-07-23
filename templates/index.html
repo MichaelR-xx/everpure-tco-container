@@ -5617,6 +5617,8 @@ function resetGuiToDefaults(delayMs) {
     const totLicCap = incl.reduce((a, c) => a + c.licCap, 0);
     tot.capOrig = incl.reduce((a, c) => a + c.origCap, 0);       // sum original capacity (GiB)
     tot.capLic  = totLicCap;                                     // sum licensed capacity (GiB)
+    tot.groupsIncluded = incl.length;                           // groups included per commercial filters
+    tot.arraysIncluded = incl.reduce((a, c) => a + num(c.arrayCount), 0);  // Everpure arrays for those groups
     tot.azureBlended  = tot.capOrig ? tot.azure    / tot.capOrig : 0;  // Azure cost / original cap
     tot.evBlendedOrig = tot.capOrig ? tot.everpure / tot.capOrig : 0;  // Everpure total / original cap
     tot.evBlendedLic  = tot.capLic  ? tot.everpure / tot.capLic  : 0;  // Everpure total / licensed cap
@@ -6378,7 +6380,9 @@ function resetGuiToDefaults(delayMs) {
       kpi("Everpure $/GiB/mo (orig cap)", "$" + (tot.evBlendedOrig || 0).toFixed(4), "var(--accent)") +
       kpi("Everpure $/GiB/mo (licensed cap)", "$" + (tot.evBlendedLic || 0).toFixed(4), "var(--accent)") +
       kpi("Total Original Cap", gib(tot.capOrig)) +
-      kpi("Total Licensed Cap", gib(tot.capLic));
+      kpi("Total Licensed Cap", gib(tot.capLic)) +
+      kpi("Groups Included", Math.round(nIncl || 0).toLocaleString()) +
+      kpi("Arrays", Math.round(tot.arraysIncluded || 0).toLocaleString(), "var(--accent)");
     $("tco-overall-kpis").innerHTML = kpis;
     // Mirror the summary at the top of the Graphs view (also captured in the PDF).
     const gk = $("tco-graphs-kpis"); if (gk) gk.innerHTML = kpis;
