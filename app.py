@@ -848,6 +848,181 @@ def tco_xlsx_download():
         D.column_dimensions[chr(64 + j)].width = w
     D.freeze_panes = "A2"
 
+    # ── Optional "Migration Ramp" sheet ────────────────────────────────────────
+    # Mirrors the Ramp view: phases the migration over the run's saved growth
+    # projection (compounded), adds a one-time migration cost ($/TiB), and tracks
+    # cumulative savings vs. staying on Azure. Snapshot of the current efficiency
+    # (this run) + commercial settings + chosen migration plan.
+    ramp_cfg = p.get("ramp") if isinstance(p.get("ramp"), dict) else None
+    if ramp_cfg is not None:
+        R = wb.create_sheet("Migration Ramp")
+        cost_per_tib = _f(ramp_cfg.get("cost_per_tib"), 0.0)
+        plan_key     = str(ramp_cfg.get("migration_plan_key", "")).strip()
+        # Load the run's growth projection (saved at generation time).
+        proj = None
+        try:
+            proj_obj = _s3_client().get_object(Bucket=s3_bucket, Key=key.replace("group_summary.csv", "projection.json"))
+            proj = json.loads(proj_obj["Body"].read().decode("utf-8"))
+        except Exception:
+            proj = None
+
+        if not proj or not proj.get("periods"):
+            R["A1"] = "Migration Ramp"; R["A1"].font = Font(bold=True, size=13)
+            R["A3"] = ("No growth projection is saved for this run, so the ramp cannot be built. "
+                       "Re-run the analysis with a growth rate and projection cycle, then re-export.")
+            R.column_dimensions["A"].width = 90
+        else:
+            periods = proj["periods"]
+            ppy     = int(proj.get("periods_per_year", 1) or 1)
+            yearly  = float(proj.get("yearly_growth", 0) or 0)
+            years   = int(proj.get("years", len(periods) // max(1, ppy)) or 5)
+            per_period = max(1, int(round(12.0 / ppy)))
+
+            # Included groups (at the current commercial settings) + per-group orig cap.
+            gid_col  = df["desc"].astype(str) if "desc" in df.columns else pd.Series([""] * len(df))
+            inc_gids, cap_map = [], {}
+            for i in range(n):
+                adj_ev  = float(license0.iloc[i]) * (1 - eDisc) * (1 + margin) + float(infra0.iloc[i])
+                adj_az  = float(azure0.iloc[i]) * (1 - aDisc)
+                rate    = ((adj_az - adj_ev) / adj_az) if adj_az else (-1.0 if (adj_az - adj_ev) < 0 else 0.0)
+                gid     = gid_col.iloc[i]
+                cap_map[gid] = float(origcap.iloc[i])
+                if rate >= minSav:
+                    inc_gids.append(gid)
+
+            # Migration plan timeline {gid: {start, done}} (or None = all-at-once).
+            plan = None
+            if plan_key:
+                try:
+                    ptext = _s3_client().get_object(Bucket=s3_bucket, Key=plan_key)["Body"].read().decode("utf-8")
+                    pdf = pd.read_csv(StringIO(ptext), comment="#")
+                    plan = {}
+                    for _, rr in pdf.iterrows():
+                        g = str(rr.get("group"))
+                        if g in ("", "nan", "None"):
+                            continue
+                        try: st = int(float(rr.get("migration_month", 1)))
+                        except (TypeError, ValueError): st = 1
+                        try: dn = int(float(rr.get("migration_done_month", st)))
+                        except (TypeError, ValueError): dn = st
+                        plan[g] = {"start": st, "done": max(st, dn)}
+                except Exception:
+                    plan = None
+
+            dm, mm = (1 - eDisc), (1 + margin)
+            nP = len(periods)
+
+            def _grp(idx, gid):
+                return (periods[idx].get("groups") or {}).get(gid)
+            def _sample(gid, growth_frac):
+                idx = round((growth_frac / yearly) * ppy) if yearly > 0 else 0
+                return _grp(max(0, min(nP - 1, idx)), gid)
+            def _frac(gid, m):
+                t = (plan or {}).get(gid) or {"start": 1, "done": 1}
+                S, Dn = t["start"], t["done"]
+                if m >= Dn:
+                    return 1.0
+                den = Dn - (S - 1)
+                return max(0.0, min(1.0, (m - (S - 1)) / den)) if den > 0 else 0.0
+
+            # Build the per-period series (mirrors buildProjSeries in the frontend).
+            series = []
+            cum_cap = 0.0
+            if not plan:
+                for j, per in enumerate(periods):
+                    gm = per.get("groups") or {}
+                    licM = infM = azM = 0.0
+                    for gid in inc_gids:
+                        v = gm.get(gid)
+                        if not v:
+                            continue
+                        infra = v.get("infra") if v.get("infra") is not None else (v.get("ev") or 0)
+                        licM += (v.get("lic") or 0) * dm * mm; infM += infra
+                        azM  += (v.get("az") or 0) * (1 - aDisc)
+                    ev = (licM + infM) * per_period; az = azM * per_period
+                    cap_this = (sum(cap_map.get(g, 0) for g in inc_gids) / 1024.0) if j == 0 else 0.0
+                    cum_cap += cap_this
+                    series.append({"label": per.get("label"), "growth_pct": per.get("growth_pct", 0),
+                                   "everpure_total": ev, "azure_native": az, "unmig_azure": 0.0,
+                                   "cap_migrated_tib": cap_this, "cum_cap_tib": cum_cap})
+            else:
+                total_months = nP * per_period
+                monthly = []
+                for m in range(1, total_months + 1):
+                    lic = inf = unmig = az = cap_mig = 0.0
+                    for gid in inc_gids:
+                        t = plan.get(gid) or {"start": 1, "done": 1}
+                        S, Dn = t["start"], t["done"]
+                        if m >= Dn:
+                            v = _sample(gid, yearly * ((m - Dn) / 12.0)); frac = 1.0
+                        else:
+                            v = _grp(0, gid); den = Dn - (S - 1)
+                            frac = max(0.0, min(1.0, (m - (S - 1)) / den)) if den > 0 else 0.0
+                        if v:
+                            infra = v.get("infra") if v.get("infra") is not None else (v.get("ev") or 0)
+                            lic   += (v.get("lic") or 0) * frac * dm * mm
+                            inf   += infra * frac
+                            unmig += (v.get("az") or 0) * (1 - frac) * (1 - aDisc)
+                            az    += (v.get("az") or 0) * (1 - aDisc)
+                        cap_mig += cap_map.get(gid, 0) * (_frac(gid, m) - _frac(gid, m - 1))
+                    monthly.append({"lic": lic, "inf": inf, "unmig": unmig, "az": az, "cap_mig": cap_mig})
+                for j, per in enumerate(periods):
+                    licM = infM = unmigM = azM = cap_migP = 0.0
+                    for k in range(per_period):
+                        idx = j * per_period + k
+                        if idx >= len(monthly):
+                            continue
+                        mo = monthly[idx]
+                        licM += mo["lic"]; infM += mo["inf"]; unmigM += mo["unmig"]; azM += mo["az"]; cap_migP += mo["cap_mig"]
+                    ev = licM + infM + unmigM
+                    cap_this = cap_migP / 1024.0; cum_cap += cap_this
+                    series.append({"label": per.get("label"), "growth_pct": per.get("growth_pct", 0),
+                                   "everpure_total": ev, "azure_native": azM, "unmig_azure": unmigM,
+                                   "cap_migrated_tib": cap_this, "cum_cap_tib": cum_cap})
+
+            # Header + editable migration-cost input cell.
+            R["A1"] = "Migration Ramp — phased over the growth projection"; R["A1"].font = Font(bold=True, size=13)
+            R["A3"] = "Migration cost per TiB ($)"; R["B3"] = cost_per_tib
+            R["B3"].fill = inputfill; R["B3"].font = bold
+            R["A4"] = "Migration plan"; R["B4"] = (plan_key.rsplit("/", 1)[-1].replace(".csv", "") if plan_key else "none (all at once)")
+            R["A5"] = "Groups migrating / included"; R["B5"] = len(inc_gids)
+            for rr in (3, 4, 5):
+                R[f"A{rr}"].alignment = Alignment(horizontal="left")
+
+            rhead = ["Period", "Growth %", "New Cap (TiB)", "Cum Cap (TiB)", "Migration $",
+                     "Everpure $", "Azure Still $", "Azure If Not Mig $", "Total $",
+                     "Cost Diff $", "Savings Rate", "Cumulative Savings $"]
+            hr = 7
+            for j, h in enumerate(rhead, start=1):
+                c = R.cell(row=hr, column=j, value=h); c.fill = hdrfill; c.font = hdrfont
+            cum = 0.0
+            for i, s in enumerate(series):
+                r = hr + 1 + i
+                mig_cost = s["cap_migrated_tib"] * cost_per_tib
+                ev_only  = s["everpure_total"] - s["unmig_azure"]
+                total    = s["everpure_total"] + mig_cost
+                not_mig  = s["azure_native"]
+                diff     = not_mig - total
+                cum     += diff
+                rate     = (diff / not_mig) if not_mig else 0.0
+                vals = [s["label"], (s.get("growth_pct") or 0) / 100.0, s["cap_migrated_tib"], s["cum_cap_tib"],
+                        mig_cost, ev_only, s["unmig_azure"], not_mig, total, diff, rate, cum]
+                for j, v in enumerate(vals, start=1):
+                    cell = R.cell(row=r, column=j, value=v)
+                    if j in (3, 4):
+                        cell.number_format = '#,##0'
+                    elif j in (5, 6, 7, 8, 9, 10, 12):
+                        cell.number_format = usd
+                    elif j == 2 or j == 11:
+                        cell.number_format = pct
+            # Headline row.
+            tr = hr + 1 + len(series) + 1
+            R.cell(tr, 1, f"{years}-Year Cumulative Savings (net of migration)").font = bold
+            R.cell(tr, 12, cum).number_format = usd; R.cell(tr, 12).font = bold
+            for j, w in {1: 12, 2: 10, 3: 13, 4: 13, 5: 14, 6: 14, 7: 14, 8: 17, 9: 14, 10: 14, 11: 12, 12: 20}.items():
+                R.column_dimensions[chr(64 + j)].width = w
+            R.freeze_panes = "A8"
+
     buf = BytesIO(); wb.save(buf); buf.seek(0)
     scenario = key.split("/")[3] if len(key.split("/")) > 3 else "tco"
     tco_id   = key.split("/tco/")[1].split("/")[0] if "/tco/" in key else "run"
@@ -7552,7 +7727,10 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
         # Subprefix token: sum of drr + growth + license cost, plus a datetime stamp
         if save_outputs:
             stamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            token = f"{(data_reduction_ratio + growth_rate + ec_license_cost_per_gib):.4f}"
+            # Include efficiency in the token so an efficiency sweep (several runs
+            # sharing DRR/growth/license, generated in the same second) produces
+            # distinct run prefixes instead of colliding on the same folder.
+            token = f"{(data_reduction_ratio + growth_rate + ec_license_cost_per_gib):.4f}_e{int(round(efficiency * 100))}"
             prefix = f"{s3_path}/tco/{token}_{stamp}/"
             saved_prefix = prefix
             upload_df_to_s3(pd.DataFrame(cost_sheet), "cost_sheet.csv", prefix)
@@ -7883,7 +8061,9 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
     saved_prefix = None
     if save_outputs and group_rows:
         stamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        token = f"{(drr + growth_rate + cap_rate):.4f}"
+        # Efficiency in the token keeps an efficiency sweep's runs from colliding
+        # on the same folder (see the dedicated engine for the rationale).
+        token = f"{(drr + growth_rate + cap_rate):.4f}_e{int(round(efficiency * 100))}"
         prefix = f"{s3_path}/tco/azn_{token}_{stamp}/"
         saved_prefix = prefix
         upload_df_to_s3(pd.DataFrame(cost_sheet), "cost_sheet.csv", prefix)
