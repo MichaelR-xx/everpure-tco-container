@@ -1206,11 +1206,14 @@ def tco_detail():
     df = _load_df_from_s3(key)
     if df is None:
         return jsonify({"error": f"group_summary.csv not found in S3: {key}"}), 404
+    # NaN -> None so the JSON is valid (browsers' JSON.parse rejects bare NaN). Empty
+    # cells like "Measured Snapshot %" on modeled runs would otherwise break the load.
+    safe = df.astype(object).where(pd.notnull(df), None)
     return jsonify({
         "ok": True,
         "group_summary_key": key,
         "columns": list(df.columns),
-        "rows": df.to_dict(orient="records"),
+        "rows": safe.to_dict(orient="records"),
     })
 
 @app.route("/api/tco/dfgroups", methods=["POST"])
@@ -1229,11 +1232,12 @@ def tco_dfgroups():
     df = _load_df_from_s3(key)
     if df is None:
         return jsonify({"error": f"df_groups.csv not found in S3: {key}"}), 404
+    safe = df.astype(object).where(pd.notnull(df), None)   # NaN -> None for valid JSON
     return jsonify({
         "ok": True,
         "df_groups_key": key,
         "columns": list(df.columns),
-        "rows": df.to_dict(orient="records"),
+        "rows": safe.to_dict(orient="records"),
     })
 
 def evaluate_migration(df, params):
