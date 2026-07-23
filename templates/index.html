@@ -931,6 +931,10 @@ body.theme-kyndryl {
                      style="width:64px;padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:.78rem;font-family:var(--font-mono);box-sizing:border-box;" />
               <span style="color:var(--muted);">%</span>
             </label>
+            <label id="field-measured-snapshot" style="display:none;align-items:center;gap:7px;font-size:.74rem;color:var(--muted);font-weight:700;" title="Use the dataset's real snapshotProvisionedCapacityGB per disk to drive snapshot cost and Everpure licensed capacity, instead of the modeled Monthly Snapshot Rate. Available because a Snapshot Provisioned Capacity column was detected.">
+              <input type="checkbox" id="mapping-use-measured-snapshot" style="cursor:pointer;accent-color:var(--accent);width:16px;height:16px;" />
+              Use measured snapshot capacity
+            </label>
             <span id="mapping-status" style="font-size:.78rem;color:var(--muted);"></span>
           </div>
           <div class="msg-area" id="mapping-messages"></div>
@@ -3106,6 +3110,21 @@ function resetGuiToDefaults(delayMs) {
     return m;
   }
 
+  // Show the "use measured snapshot capacity" option only when a Snapshot Provisioned
+  // Capacity column is mapped; dim the modeled-rate input when measured mode is on.
+  function updateMeasuredToggle() {
+    const lbl = document.getElementById("field-measured-snapshot");
+    const cb  = document.getElementById("mapping-use-measured-snapshot");
+    const rate = document.getElementById("mapping-snapshot-rate");
+    if (!lbl || !cb) return;
+    const mapped = fieldIndexMap()["snapshot_provisioned_gb"] !== -99;
+    lbl.style.display = mapped ? "flex" : "none";
+    if (!mapped) cb.checked = false;
+    if (rate) rate.disabled = mapped && cb.checked;
+  }
+  (function(){ const cb = document.getElementById("mapping-use-measured-snapshot");
+    if (cb) cb.addEventListener("change", updateMeasuredToggle); })();
+
   function optionsHtml(selectedKey) {
     // Empty value = "Don't Use" (passed to the engine as -99).
     let h = `<option value=""${!selectedKey ? " selected" : ""}>Don't Use</option>`;
@@ -3144,6 +3163,7 @@ function resetGuiToDefaults(delayMs) {
       });
     });
     updateParseState();
+    updateMeasuredToggle();
   }
 
   // Header-aligned data preview shown ABOVE the mapping grid: the column headers
@@ -3177,6 +3197,7 @@ function resetGuiToDefaults(delayMs) {
       sel.value = c ? c.fieldKey : "";
     });
     updateParseState();
+    updateMeasuredToggle();
   }
 
   function updateParseState() {
@@ -3302,10 +3323,12 @@ function resetGuiToDefaults(delayMs) {
       const snapEl = document.getElementById("mapping-snapshot-rate");
       let snapRate = snapEl ? parseFloat(snapEl.value) / 100 : 0.1;
       if (!Number.isFinite(snapRate)) snapRate = 0.1;
+      const measEl = document.getElementById("mapping-use-measured-snapshot");
+      const useMeasured = !!(measEl && measEl.checked && document.getElementById("field-measured-snapshot").style.display !== "none");
       const res  = await fetch("/api/mapping/parse", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fieldIndexMap: fieldIndexMap(), name: datasetName, searchable: [...searchable],
-                               monthly_snapshot_rate: snapRate }),
+                               monthly_snapshot_rate: snapRate, use_measured_snapshot: useMeasured }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Parse failed.");
@@ -5549,6 +5572,10 @@ function resetGuiToDefaults(delayMs) {
         hasMd: (r["Y1 Azure MD Capacity $"] !== undefined
                 || r["Y1 Azure MD Performance $"] !== undefined
                 || r["Y1 Azure MD Snapshots $"] !== undefined),
+        // Measured snapshot capacity as a fraction of volume; null for modeled runs
+        // (blank cell) or older runs without the column (shown as "—").
+        measSnapPct: ((r["Measured Snapshot %"] === undefined || r["Measured Snapshot %"] === null
+                       || r["Measured Snapshot %"] === "") ? null : num(r["Measured Snapshot %"])),
       };
     });
     const incl = computed.filter(c => c.included);
@@ -5660,7 +5687,7 @@ function resetGuiToDefaults(delayMs) {
                   "Mig Month","Azure MD Total $","Azure MD Capacity $","Azure MD Performance $","Azure MD Snapshots $",
                   "Everpure Lic $","Everpure Infra $","Everpure Total $",
                   "Azure $/GiB (orig)","EP $/GiB (orig)","EP $/GiB (lic)",
-                  "Savings $","Savings %","Included"];
+                  "Savings $","Savings %","Included","Measured Snap %"];
     const rows = [head.map(esc).join(",")];
     lastComputed.slice().sort((a, b) => b.rate - a.rate).forEach(c => {
       const migMonth = evalMonthByGroup[String(c.group)];
@@ -5677,6 +5704,7 @@ function resetGuiToDefaults(delayMs) {
         perGib(c.adjAzure, c.origCap), perGib(c.everpureTotal, c.origCap), perGib(c.everpureTotal, c.licCap),
         Math.round(c.savings * m),
         (c.rate * 100).toFixed(1) + "%", c.included ? "yes" : "no",
+        c.measSnapPct != null ? (c.measSnapPct * 100).toFixed(1) + "%" : "",
       ].map(esc).join(","));
     });
 
@@ -5699,6 +5727,8 @@ function resetGuiToDefaults(delayMs) {
       perGib(t.azure, capOrig), perGib(t.everpure, capOrig), perGib(t.everpure, capLic),
       Math.round(t.savings * m),
       (t.rate * 100).toFixed(1) + "%", "",
+      (function(){ const mi=incl.filter(c=>c.measSnapPct!=null); const den=mi.reduce((s,c)=>s+num(c.origCap),0);
+        return (mi.length && den) ? (mi.reduce((s,c)=>s+c.measSnapPct*num(c.origCap),0)/den*100).toFixed(1)+"%" : ""; })(),
     ].map(esc).join(","));
 
     const genStamp = selectedRun ? String(selectedRun.tco_id || "").split("_").pop() : "";
@@ -6346,7 +6376,7 @@ function resetGuiToDefaults(delayMs) {
                   ...(showMinCap ? ["Min Cap"] : []),
                   "Mig Month","Azure MD Total $","Azure MD Capacity $","Azure MD Performance $","Azure MD Snapshots $",
                   "Everpure Lic $","Everpure Infra $","Everpure Total $",
-                  "Azure $/GiB (orig)","EP $/GiB (orig)","EP $/GiB (lic)","Savings $","Savings %","Incl."];
+                  "Azure $/GiB (orig)","EP $/GiB (orig)","EP $/GiB (lic)","Savings $","Savings %","Incl.","Measured Snap %"];
     const td = (v, extra) => `<td style="padding:7px 10px;border-bottom:1px solid var(--border);${extra || ""}">${v}</td>`;
     const mono = "font-family:var(--font-mono);";
     const intFmt = v => Math.round(num(v)).toLocaleString();
@@ -6418,6 +6448,7 @@ function resetGuiToDefaults(delayMs) {
         ${td(fmtUsd(c.savings * months), mono + "color:" + (c.savings>=0?"var(--success,#7ab87a)":"var(--danger)") + ";")}
         ${td(fmtPct(c.rate), mono)}
         ${td(c.included ? "✔" : "—")}
+        ${td(c.measSnapPct != null ? fmtPct(c.measSnapPct) : "—", mono)}
       </tr>`;
     });
     html += `</tbody>`;
@@ -6428,6 +6459,9 @@ function resetGuiToDefaults(delayMs) {
     const sumCompute = incl.reduce((s, c) => s + c.numCompute, 0);
     const sumVolumes = incl.reduce((s, c) => s + c.numVolumes, 0);
     const sumArrays  = incl.reduce((s, c) => s + c.arrayCount, 0);
+    const measIncl = incl.filter(c => c.measSnapPct != null);
+    const measBlend = measIncl.length && measIncl.reduce((s,c)=>s+c.origCap,0)
+      ? measIncl.reduce((s,c)=>s+c.measSnapPct*c.origCap,0) / measIncl.reduce((s,c)=>s+c.origCap,0) : null;
     const tf = (v, extra) => `<td style="padding:9px 10px;border-top:2px solid var(--border);font-weight:700;${extra || ""}">${v}</td>`;
     html += `<tfoot><tr style="background:color-mix(in srgb, var(--accent) 8%, transparent);">
         ${tf("TOTAL (included)")}${tf("")}${tf("")}${tf("")}${tf("")}${tf("")}
@@ -6451,6 +6485,7 @@ function resetGuiToDefaults(delayMs) {
         ${tf(fmtUsd(tot.savings * months), mono + "color:" + (tot.savings>=0?"var(--success,#7ab87a)":"var(--danger)") + ";")}
         ${tf(fmtPct(tot.rate), mono)}
         ${tf("")}
+        ${tf(measBlend != null ? fmtPct(measBlend) : "—", mono)}
       </tr></tfoot>`;
     html += `</table></div>`;
     $("tco-data-area").innerHTML = html;

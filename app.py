@@ -2700,7 +2700,10 @@ def results_run_analysis():
     except (TypeError, ValueError):
         new_rate = r0
     _cost_cols = {"cap_cost", "iops_cost", "mbps_cost", "snap_cost", "total_cost"}
-    if new_rate != r0 and _cost_cols.issubset(df_parsed.columns):
+    # Skip the rate rescale when this dataset was parsed with measured snapshot capacity:
+    # its snap_cost is real per-disk data, not a function of the modeled rate.
+    _measured = bool(source_data_config.get("use_measured_snapshot", False))
+    if not _measured and new_rate != r0 and _cost_cols.issubset(df_parsed.columns):
         for _c in _cost_cols:
             df_parsed[_c] = pd.to_numeric(df_parsed[_c], errors="coerce").fillna(0)
         old_factor = (r0 / 2) + 1                       # >= 1 for r0 >= 0, safe divisor
@@ -3549,6 +3552,14 @@ DATA_FIELDS_CATALOG = [
     {"key": "root_flag", "label": "OS/Root Disk Flag", "aliases": ["root", "os disk", "osdisk", "is os disk", "boot", "root flag"]},
     {"key": "count_compute", "label": "Compute Count (VMs)", "aliases": ["vm count", "vmcount", "count", "compute count", "number of vms", "num vms", "vms", "vm_name", "vm name", "vmname", "hostname", "host name", "machine name", "server name", "compute name"]},
     {"key": "disk_usage", "label": "Disk Usage / Used (GiB)", "aliases": ["used (gb)", "used gb", "used", "disk usage", "consumed (gb)", "used capacity", "used (gib)"]},
+    # Measured snapshot fields (optional). When snapshot_provisioned_gb is mapped, the
+    # Parse Data page offers a "use measured snapshot capacity" option that drives the
+    # Azure snapshot cost and the Everpure licensed-capacity uplift from real per-disk
+    # snapshot data instead of the modeled monthly snapshot rate.
+    {"key": "snapshot_count", "label": "Snapshot Count", "aliases": ["snapshotcount", "snapshot count", "total snapshots", "snapshots"]},
+    {"key": "incremental_snapshot_count", "label": "Incremental Snapshot Count", "aliases": ["incrementalsnapshotcount", "incremental snapshot count", "incremental snapshots"]},
+    {"key": "snapshot_billed_gb", "label": "Snapshot Billed Capacity (GB)", "aliases": ["snapshotbilledcapacitygb", "snapshot billed capacity gb", "snapshot billed (gb)", "snapshot billed gb", "snapshot billed"]},
+    {"key": "snapshot_provisioned_gb", "label": "Snapshot Provisioned Capacity (GB)", "aliases": ["snapshotprovisionedcapacitygb", "snapshot provisioned capacity gb", "snapshot provisioned (gb)", "snapshot provisioned gb", "snapshot provisioned"]},
 ]
 MAPPING_TEMPLATES_KEY = "TCO-GUI/_config/mapping_templates.json"
 # Learned/edited header aliases per field, layered onto the constant catalog.
@@ -3830,6 +3841,11 @@ def mapping_parse():
     except (TypeError, ValueError):
         snap_rate = 0.1
     config["monthly_snapshot_rate"] = max(0.0, min(1.0, snap_rate))
+    # Use measured snapshot capacity (snapshot_provisioned_gb column) for snapshot cost
+    # and licensed-capacity, instead of the modeled rate. Only honored when the column
+    # is actually mapped; stored in the config so the analysis engines see it too.
+    config["use_measured_snapshot"] = bool(body.get("use_measured_snapshot", False)) \
+                                      and config.get("snapshot_provisioned_gb", -99) != -99
     session["json_config"] = config
     try:
         results = read_file_s3(upload_prefix)
@@ -4656,6 +4672,30 @@ def _cup(azure_pricing, conds):
     return res
 
 
+# Measured-snapshot mode (set per parse in main2). When on, the snapshot component of
+# a disk's Azure cost comes from the disk's real provisioned snapshot GB rather than the
+# modeled monthly snapshot rate.
+use_measured_snapshot = False
+snapshot_prov_col = None
+
+
+def _snapshot_price_for_row(row, disk_size_val, lrs_snapshot_price):
+    """Snapshot component of a disk's Azure cost. Measured mode: real provisioned
+    snapshot GB (this disk) x the LRS snapshot $/GB. Otherwise the modeled monthly
+    snapshot rate (rate 0 -> 0)."""
+    if use_measured_snapshot and snapshot_prov_col:
+        try:
+            P = float(row[snapshot_prov_col])
+        except (TypeError, ValueError):
+            P = 0.0
+        if pd.isna(P):
+            P = 0.0
+        return P * lrs_snapshot_price
+    if float(monthly_snapshot_rate) == 0:
+        return 0
+    return float(efficiency) * disk_size_val * ((float(monthly_snapshot_rate) / 2) + 1) * lrs_snapshot_price
+
+
 def calc_true_cost_azure(row, azure_pricing):
     global iops
     global mbps
@@ -4746,12 +4786,8 @@ def calc_true_cost_azure(row, azure_pricing):
             bw_price = float(bw_prices[0]) * (mbps_val - 0) * hours_per_month
         else:
             print(f"multiple or no bw prices {bw_prices} for {region_name} - {bw_meter}")
-        # 04/06 Option to ingore all snaphot costs if change rate is zero
-        if float(monthly_snapshot_rate) == 0:
-            snapshot_price = 0
-        else:
-
-            snapshot_price = float(efficiency) * disk_size_val * ((float(monthly_snapshot_rate) / 2) + 1) * lrs_snapshot_price
+        # Snapshot cost: measured provisioned GB (if enabled) or modeled rate.
+        snapshot_price = _snapshot_price_for_row(row, disk_size_val, lrs_snapshot_price)
         total_cost = iops_price + bw_price + capacity_price + snapshot_price
         return pd.Series(
             {"total_cost": total_cost, "cap_cost": capacity_price, "iops_cost": iops_price, "mbps_cost": bw_price,
@@ -4835,11 +4871,8 @@ def calc_true_cost_azure(row, azure_pricing):
             capacity_price = 0
         iops_price = 0
         bw_price = 0
-        # 04/06 MR Option to ingore all snaphot costs if change rate is zero
-        if float(monthly_snapshot_rate) == 0:
-            snapshot_price = 0
-        else:
-            snapshot_price = float(efficiency) * disk_size_val * ((float(monthly_snapshot_rate) / 2) + 1) * lrs_snapshot_price
+        # Snapshot cost: measured provisioned GB (if enabled) or modeled rate.
+        snapshot_price = _snapshot_price_for_row(row, disk_size_val, lrs_snapshot_price)
         total_cost = iops_price + bw_price + capacity_price + snapshot_price
         # print(disk_type_name)
         #    print(f"capacity prices {capacity_prices}")
@@ -4915,11 +4948,8 @@ def calc_true_cost_azure(row, azure_pricing):
             capacity_price = 0
         iops_price = 0
         bw_price = 0
-        # 04/06 MR Option to ingore all snaphot costs if change rate is zero
-        if float(monthly_snapshot_rate) == 0:
-            snapshot_price = 0
-        else:
-            snapshot_price = float(efficiency) * disk_size_val * ((float(monthly_snapshot_rate) / 2) + 1) * lrs_snapshot_price
+        # Snapshot cost: measured provisioned GB (if enabled) or modeled rate.
+        snapshot_price = _snapshot_price_for_row(row, disk_size_val, lrs_snapshot_price)
         total_cost = iops_price + bw_price + capacity_price + snapshot_price
         # print(disk_type_name)
         #    print(f"capacity prices {capacity_prices}")
@@ -4973,11 +5003,8 @@ def calc_true_cost_azure(row, azure_pricing):
                 bw_price = float(bw_prices[0]) * (mbps_val - 125) * hours_per_month
         else:
             print(f"multiple or no bw prices {bw_prices} for {region_name} - {bw_meter}")
-        # 04/06 MR Option to ingore all snaphot costs if change rate is zero
-        if float(monthly_snapshot_rate) == 0:
-            snapshot_price = 0
-        else:
-            snapshot_price = float(efficiency) * disk_size_val * (float((monthly_snapshot_rate) / 2) + 1) * lrs_snapshot_price
+        # Snapshot cost: measured provisioned GB (if enabled) or modeled rate.
+        snapshot_price = _snapshot_price_for_row(row, disk_size_val, lrs_snapshot_price)
         total_cost = iops_price + bw_price + capacity_price + snapshot_price
         #print(disk_type_name)
         #print(f"capacity prices {capacity_price} {capacity_prices} {disk_size_val}")
@@ -5081,13 +5108,8 @@ def calc_true_cost_azure(row, azure_pricing):
         iops_price = 0
         bw_price = 0
         #    print(f"efficiency {float(efficiency)} disk_size_val {disk_size_val} {float(monthly_snapshot_rate)}")
-        # 04/06 MR Option to ingore all snaphot costs if change rate is zero
-        if float(monthly_snapshot_rate) == 0:
-            snapshot_price = 0
-        else:
-            snapshot_size = float(efficiency) * disk_size_val * ((float(monthly_snapshot_rate) / 2) + 1)
-            #print(f"snapshot size {snapshot_size} disk size {disk_size_val}")
-            snapshot_price = float(efficiency) * disk_size_val * (float(monthly_snapshot_rate / 2) + 1) * lrs_snapshot_price
+        # Snapshot cost: measured provisioned GB (if enabled) or modeled rate.
+        snapshot_price = _snapshot_price_for_row(row, disk_size_val, lrs_snapshot_price)
         total_cost = iops_price + bw_price + capacity_price + snapshot_price
         #    print(disk_type_name)
         #    print(f"snapshot price {snapshot_price}")
@@ -5829,6 +5851,16 @@ def main2(event,df_all):
     disk_type = col_names[disk_type_column_value]
     # print("disk_type_value", disk_type, disk_type_column_value)
     disk_size = col_names[disk_size_column_value]
+    # Measured-snapshot mode: resolve the provisioned-snapshot column and the toggle so
+    # calc_true_cost_azure can price snapshots from real per-disk data.
+    global use_measured_snapshot, snapshot_prov_col
+    _sp_idx = event.get("snapshot_provisioned_gb", -99)
+    try:
+        _sp_idx = int(_sp_idx)
+    except (TypeError, ValueError):
+        _sp_idx = -99
+    snapshot_prov_col = col_names[_sp_idx] if 0 <= _sp_idx < len(col_names) else None
+    use_measured_snapshot = bool(event.get("use_measured_snapshot", False)) and snapshot_prov_col is not None
     # Guard against a wrong column mapping: disk_size MUST point at a numeric
     # (capacity) column. Mapping it to a text column (e.g. "OS Type"/"SKU") would
     # otherwise fail deep in cost calc with a cryptic "cannot convert NaN to
@@ -6523,6 +6555,18 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
     source_data_config = params.get("source_data_config", {}) or {}
     col_names = df_parsed.columns.tolist()
 
+    # Measured-snapshot mode: licensed capacity = efficiency * (group_prov_cap + P_group),
+    # where P_group is the group's real provisioned snapshot GB, instead of the modeled
+    # (1 + rate/2) uplift.
+    _sp_idx = int(source_data_config.get("snapshot_provisioned_gb", -99))
+    snap_prov_col = col_names[_sp_idx] if 0 <= _sp_idx < len(col_names) else None
+    use_measured_snap = bool(source_data_config.get("use_measured_snapshot", False)) and snap_prov_col is not None
+    def _group_snap_prov(g):
+        if not (use_measured_snap and snap_prov_col in df_parsed.columns):
+            return 0.0
+        return float(pd.to_numeric(df_parsed.loc[df_parsed['group_id'] == g, snap_prov_col],
+                                   errors="coerce").fillna(0).sum())
+
     region_column_value        = int(source_data_config.get("region", -99))
     disk_size_column_value     = int(source_data_config.get("disk_size", -99))
     iops_column_value          = int(source_data_config.get("iops", -99))
@@ -6860,8 +6904,10 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                         # print(f"made it to halla {run_count}")
                 # print(f"add skus {additional_skus_for_this_run}")
                 # print(f"clump for mod {mod} iops {group_tot_iops_all} cap {group_prov_cap_all}")
-                # 04/06 MR Option to ingore all snaphot costs if change rate is zero
-                if float(monthly_snapshot_rate) == 0:
+                # Licensed capacity: measured snapshot GB (if enabled) or modeled rate.
+                if use_measured_snap:
+                    group_ec_licensed_capacity = (group_prov_cap_all + _group_snap_prov(g)) * efficiency
+                elif float(monthly_snapshot_rate) == 0:
                     group_ec_licensed_capacity = (group_prov_cap_all * efficiency)
                 else:
                     group_ec_licensed_capacity = (group_prov_cap_all * efficiency) * (1 + (monthly_snapshot_rate / 2))
@@ -7077,8 +7123,10 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                     min_sku_index = 1
                     for mod2 in additional_skus_for_this_run:
                         group_prov_cap_all = group_prov_cap[mod2]
-                        # 04/06 MR Option to ingore all snaphot costs if change rate is zero
-                        if float(monthly_snapshot_rate) == 0:
+                        # Licensed capacity: measured snapshot GB (if enabled) or modeled rate.
+                        if use_measured_snap:
+                            group_ec_licensed_capacity = (group_prov_cap_all + _group_snap_prov(g)) * efficiency
+                        elif float(monthly_snapshot_rate) == 0:
                             group_ec_licensed_capacity = (group_prov_cap_all * efficiency)
                         else:
                             group_ec_licensed_capacity = (group_prov_cap_all * efficiency) * (1 + (monthly_snapshot_rate / 2))
@@ -7353,6 +7401,9 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
                 "Azure Paid Capacity": orig_cap,
                 "Num Compute": cs.get("tc", 0),
                 "Num Volumes": int((df_parsed["group_id"] == g).sum()),
+                # Measured snapshot capacity as a fraction of the group's volume; null
+                # when the run used the modeled snapshot approach.
+                "Measured Snapshot %": ((_group_snap_prov(g) / orig_cap) if (use_measured_snap and orig_cap) else None),
             })
 
         # Subprefix token: sum of drr + growth + license cost, plus a datetime stamp
@@ -7510,6 +7561,10 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
     vnet_col    = _col("vnet_or_vpc")
     if "true_az" in col_names:
         zone_col = "true_az"
+    # Measured-snapshot mode: use real provisioned snapshot GB for the licensed-capacity
+    # uplift (licensed cap = efficiency * (orig_cap + P_group)) instead of (1 + rate/2).
+    snap_prov_col = _col("snapshot_provisioned_gb")
+    use_measured_snap = bool(source_data_config.get("use_measured_snapshot", False)) and snap_prov_col is not None
 
     def _gsum(g, col):
         if col and col in df_parsed.columns:
@@ -7547,9 +7602,13 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
         num_compute = _gsum(g, compute_col)
         azure_native = _gsum(g, "total_cost")
 
-        # Effective capacity includes the snapshot uplift (1 + snap_rate/2), matching
-        # the Dedicated engine so the snapshot-rate control affects Azure Native too.
-        eff_cap = orig_cap * efficiency * (1 + snap_rate / 2)
+        # Effective capacity = primary + snapshot capacity, reduced by efficiency.
+        # Measured mode uses the group's real provisioned snapshot GB; otherwise the
+        # modeled (1 + snap_rate/2) uplift.
+        if use_measured_snap:
+            eff_cap = efficiency * (orig_cap + _gsum(g, snap_prov_col))
+        else:
+            eff_cap = orig_cap * efficiency * (1 + snap_rate / 2)
         # Minimum billable capacity: any group below minimum_capacity is billed at
         # minimum_capacity, and flagged so the condition is visible in the results.
         min_cap_applied = eff_cap < minimum_capacity
@@ -7634,6 +7693,10 @@ def tco_by_group_azure_native(params, df_parsed, ecan_config, s3_path, save_outp
             "Y1 Capacity $": capacity_cost,
             "Y1 Throughput $": throughput_cost,
             "Throughput Mode": thr_choice,   # "on"/"off" actually used (for optimized, the winner)
+            # Measured snapshot capacity as a fraction of the group's volume (the
+            # "equivalent snapshot rate" the real data represents); null when the run
+            # used the modeled snapshot approach.
+            "Measured Snapshot %": ((_gsum(g, snap_prov_col) / orig_cap) if (use_measured_snap and orig_cap) else None),
             "Min Capacity Applied": "Yes" if min_cap_applied else "No",
         })
 
