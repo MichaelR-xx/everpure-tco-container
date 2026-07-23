@@ -3545,7 +3545,7 @@ DATA_FIELDS_CATALOG = [
     {"key": "region", "label": "Region", "aliases": ["region", "location", "azureregion", "azure region", "datacenter", "az region"]},
     {"key": "zone", "label": "Availability Zone", "aliases": ["zone", "availability zone", "availabilityzone", "az", "azurezone", "azure zone"]},
     {"key": "subscription_or_account_id", "label": "Subscription / Account", "aliases": ["subscription", "subscription id", "subscriptionid", "account", "account id", "accountid", "account name", "accountname"]},
-    {"key": "vnet_or_vpc", "label": "VNet / VPC", "aliases": ["vnet", "vnet name", "vnetname", "vpc", "network", "virtual network", "resource group", "resourcegroup"]},
+    {"key": "vnet_or_vpc", "label": "VNet / VPC", "aliases": ["vnet", "vnet name", "vnetname", "vpc", "network", "virtual network"]},
     {"key": "disk_type", "label": "Disk Type / SKU", "required": True, "aliases": ["disk type", "disktype", "sku", "storage type", "tier", "disk sku", "type"]},
     {"key": "disk_size", "label": "Disk Size (GiB)", "required": True, "aliases": ["disk size", "disksize", "allocated (gb)", "allocated gb", "allocated", "size", "size (gb)", "capacity", "provisioned (gb)", "provisioned size", "disk size (gib)", "gib", "gb"]},
     {"key": "mbps", "label": "Throughput (MBps)", "aliases": ["mbps", "throughput", "bandwidth", "disk bw", "diskbw", "provisioned_bw", "provisioned bw", "throughput (mbps)", "bw"]},
@@ -3793,21 +3793,31 @@ def mapping_parse():
         results_prefix = upload_prefix.rsplit("/data/", 1)[0] + "/results/"
         session["results_prefix"] = results_prefix
     session["upload_prefix"] = upload_prefix
-    # Learn the manual/auto column mappings: add each mapped column's header as an
-    # alias for its field so the same file auto-maps next time.
+    # Remember the user's column mapping for future uploads. For every header in THIS
+    # file, reconcile the saved aliases so that header maps to EXACTLY the field the
+    # user assigned it: add it as an alias of the chosen field, and remove it from any
+    # other field it currently maps to. This both learns manual picks and un-learns
+    # wrong ones (e.g. resourceGroup stops being treated as VNet once you unmap it).
     try:
         headers = _upload_headers(upload_prefix) or []
         overrides = _load_field_overrides()
-        base = {f["key"]: list(f["aliases"]) for f in catalog}
-        changed = False
-        for key, idx in field_index.items():
-            if isinstance(idx, int) and 0 <= idx < len(headers):
-                alias = str(headers[idx]).strip().lower()
-                cur = overrides.get(key, base.get(key, []))
-                if alias and alias not in [str(a).strip().lower() for a in cur]:
-                    overrides[key] = cur + [alias]
-                    changed = True
-        if changed:
+        eff = {f["key"]: list(f["aliases"]) for f in catalog}   # current effective aliases per field
+        idx_to_field = {i: k for k, i in field_index.items() if isinstance(i, int) and i != -99}
+        changed_keys = set()
+        for i, h in enumerate(headers):
+            hl = str(h).strip().lower()
+            if not hl:
+                continue
+            chosen = idx_to_field.get(i)   # field the user mapped this header to, or None
+            for k, al in eff.items():
+                low = [str(a).strip().lower() for a in al]
+                if k == chosen and hl not in low:
+                    al.append(hl); changed_keys.add(k)
+                elif k != chosen and hl in low:
+                    eff[k] = [a for a in al if str(a).strip().lower() != hl]; changed_keys.add(k)
+        if changed_keys:
+            for k in changed_keys:
+                overrides[k] = eff[k]
             _save_field_overrides(overrides)
     except Exception as exc:
         print(f"Warning: could not persist learned aliases: {exc}")
