@@ -814,11 +814,13 @@ def tco_xlsx_download():
         ("Everpure cost",         f"=({sumifs('K')[1:]})*{MONTHS}", usd),
         ("Savings",               "=B15-B16", usd),
         ("Savings rate",          "=IF(B15<>0,B17/B15,0)", pct),
+        ("5-Year Cumulative Savings", f"=({sumifs('L')[1:]}-{sumifs('K')[1:]})*60", usd),
     ]
     for i, (lbl, formula, fmt) in enumerate(rows):
         r = 11 + i
         S[f"A{r}"] = lbl; S[f"B{r}"] = formula; S[f"B{r}"].number_format = fmt
-    for r in range(4, 19):
+    S["A19"].font = bold; S["B19"].font = bold   # emphasize the 5-year headline
+    for r in range(4, 20):
         S[f"A{r}"].alignment = Alignment(horizontal="left")
     S.column_dimensions["A"].width = 34; S.column_dimensions["B"].width = 18
 
