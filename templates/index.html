@@ -552,6 +552,10 @@ body.theme-kyndryl {
 </head>
 <body>
 
+<!-- Active UI theme accessor (used to scope customer lists by theme). Defined
+     early so every later script can read it regardless of block order. -->
+<script>window.curTheme = function(){ try { return localStorage.getItem("uiTheme") || "everpure"; } catch(e){ return "everpure"; } };</script>
+
 <!-- ══ TOPBAR ═════════════════════════════════════════════ -->
 <nav id="topbar">
   <div class="logo">
@@ -2717,10 +2721,11 @@ Cap ${Number(m.capacity_gib).toLocaleString()} GiB (${m.capacity_tib} TiB)</div>
     catch(e){ alert(e.message); }
   }
 
+  document.addEventListener("uithemechange", () => { try { wlLoadCustomers(); } catch(e){} });
   async function wlLoadCustomers(){
     const sel=$b("wl-customer");
     try{
-      const r=await fetch("/api/customers",{credentials:"same-origin"}); const d=await r.json();
+      const r=await fetch("/api/customers?theme="+encodeURIComponent((window.curTheme?window.curTheme():"everpure")),{credentials:"same-origin"}); const d=await r.json();
       const list=(d.customers||[]);
       const cur=(typeof activeCustomer!=="undefined"&&activeCustomer)?activeCustomer:"";
       if(!list.length){ sel.innerHTML='<option value="">— add a customer on the Customers tab —</option>'; return; }
@@ -3430,7 +3435,7 @@ function resetGuiToDefaults(delayMs) {
     listContainer.innerHTML = `<div style="color:var(--muted);font-size:.82rem;">Loading…</div>`;
     try {
       const [listRes, activeRes] = await Promise.all([
-        fetch("/api/customers"),
+        fetch("/api/customers?theme=" + encodeURIComponent(curTheme())),
         fetch("/api/customers/active"),
       ]);
       const listData   = await listRes.json();
@@ -3446,6 +3451,10 @@ function resetGuiToDefaults(delayMs) {
       listContainer.innerHTML = `<div style="color:var(--danger);font-size:.82rem;">Error loading customers: ${escHtml(e.message)}</div>`;
     }
   }
+
+  // Customers are scoped by UI theme — when the theme changes, reload the list so
+  // only customers created under the active theme (plus untagged/global ones) show.
+  document.addEventListener("uithemechange", () => { loadCustomers(); });
 
   function setActiveDisplay(name, scenario) {
     activeDisplay.textContent = name ? `${name}  /  ${scenario || "default"}` : "— none selected —";
@@ -3493,7 +3502,7 @@ function resetGuiToDefaults(delayMs) {
       if (!res.ok) throw new Error(data.error);
       activeCustomer = name;
       setActiveDisplay(name, activeScenario);
-      const listRes  = await fetch("/api/customers");
+      const listRes  = await fetch("/api/customers?theme=" + encodeURIComponent(curTheme()));
       const listData = await listRes.json();
       renderCustomerList(listData.customers || []);
       showMsgs(messages, [`Customer "${name}" is now active — resetting…`], "success");
@@ -3530,7 +3539,7 @@ function resetGuiToDefaults(delayMs) {
     try {
       const res  = await fetch("/api/customers/add", {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({name}),
+        body: JSON.stringify({name, theme: curTheme()}),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -8248,11 +8257,19 @@ function resetGuiToDefaults(delayMs) {
       const n = firstText(h);
       if (n) { store.push({ node: n, orig: n.nodeValue }); n.nodeValue = t.prefix + n.nodeValue.trim() + " "; }
     });
+    // Keep the server session's active theme in sync so customer listing/creation
+    // can scope by it even if a request omits the ?theme= param.
+    try {
+      fetch("/api/theme", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ theme: key }) }).catch(() => {});
+    } catch (e) {}
   }
 
   sel.addEventListener("change", () => {
     try { localStorage.setItem("uiTheme", sel.value); } catch (e) {}
     applyTheme(sel.value);
+    // Customers are scoped by theme — refresh any customer lists now that it changed.
+    document.dispatchEvent(new CustomEvent("uithemechange", { detail: { theme: sel.value } }));
   });
   let saved = "everpure";
   try { saved = localStorage.getItem("uiTheme") || "everpure"; } catch (e) {}

@@ -3336,24 +3336,66 @@ def _load_df_from_s3(object_key):
         print(f"Error loading {object_key} from S3: {exc}")
         return None
 
-def _load_customer_list():
+def _load_customer_store():
+    """Read the customer store from S3 as {"customers":[...], "themes":{name: theme}}.
+    Normalizes the legacy formats (a bare list, or {"customers":[...]} with no
+    themes). A customer with no theme entry is 'global' — visible in every theme."""
     global s3_region
     global s3_bucket
-    """Read customer list JSON from S3. Returns list of customer name strings."""
     try:
         s3   = _s3_client()
         obj  = s3.get_object(Bucket=s3_bucket, Key=CUSTOMER_LIST_S3_KEY)
         data = json.loads(obj["Body"].read().decode("utf-8"))
-        if isinstance(data, list):
-            return data
-        return data.get("customers", [])
     except ClientError as exc:
         code = exc.response["Error"]["Code"]
         if code in ("NoSuchKey", "404"):
-            return []          # file doesn't exist yet — treat as empty
+            return {"customers": [], "themes": {}}   # file doesn't exist yet
         raise
     except Exception:
-        return []
+        return {"customers": [], "themes": {}}
+    if isinstance(data, list):
+        return {"customers": list(data), "themes": {}}
+    return {"customers": data.get("customers", []) or [], "themes": data.get("themes", {}) or {}}
+
+def _save_customer_store(store):
+    """Write the customer store back to S3, dropping theme tags for any name no
+    longer in the customer list."""
+    global s3_region
+    global s3_bucket
+    names  = sorted(set(store.get("customers", []) or []))
+    themes = {k: v for k, v in (store.get("themes", {}) or {}).items() if k in names and v}
+    payload = json.dumps({"customers": names, "themes": themes}, indent=2).encode("utf-8")
+    _s3_client().put_object(
+        Bucket=s3_bucket,
+        Key=CUSTOMER_LIST_S3_KEY,
+        Body=payload,
+        ContentType="application/json",
+    )
+
+def _visible_customers(store, theme):
+    """Names visible under `theme`: those tagged with that theme, plus any untagged
+    (legacy/global) customers, which appear in every theme."""
+    themes = store.get("themes", {}) or {}
+    out = [n for n in (store.get("customers", []) or []) if (not themes.get(n)) or themes.get(n) == theme]
+    return sorted(set(out))
+
+def _current_theme(default="everpure"):
+    """Resolve the active UI theme for this request: an explicit ?theme= / body
+    theme wins, else the session value, else the default."""
+    try:
+        body = request.get_json(silent=True) or {}
+    except Exception:
+        body = {}
+    t = (request.args.get("theme")
+         or (body.get("theme") if isinstance(body, dict) else "")
+         or session.get("active_theme")
+         or default)
+    return str(t).strip() or default
+
+def _load_customer_list():
+    """Back-compat: the full list of customer name strings (unfiltered by theme).
+    Used by the many endpoints that build S3 paths from a customer name."""
+    return _load_customer_store()["customers"]
 
 def _load_ec_list(models):
     global s3_region
@@ -3403,24 +3445,20 @@ def _load_ecan_config():
         return {}
 
 def _save_customer_list(customers):
-    """Write the customer list back to S3 as JSON."""
-    global s3_region
-    global s3_bucket
-    s3      = _s3_client()
-    payload = json.dumps({"customers": sorted(set(customers))}, indent=2).encode("utf-8")
-    s3.put_object(
-        Bucket=s3_bucket,
-        Key=CUSTOMER_LIST_S3_KEY,
-        Body=payload,
-        ContentType="application/json",
-    )
+    """Back-compat writer: persist the given names while PRESERVING existing theme
+    tags (theme tags for removed names are dropped by _save_customer_store)."""
+    store = _load_customer_store()
+    store["customers"] = list(customers)
+    _save_customer_store(store)
 
 @app.route("/api/customers", methods=["GET"])
 @login_required
 def customers_list():
     try:
-        customers = _load_customer_list()
-        return jsonify({"ok": True, "customers": customers})
+        store = _load_customer_store()
+        theme = _current_theme()
+        return jsonify({"ok": True, "customers": _visible_customers(store, theme),
+                        "theme": theme, "themes": store.get("themes", {})})
     except NoCredentialsError:
         return jsonify({"error": "AWS credentials are not configured on the server."}), 500
     except ClientError as exc:
@@ -3441,15 +3479,19 @@ def customers_add():
     import re
     if not re.match(r'^[\w\-. ]+$', name):
         return jsonify({"error": "Customer name may only contain letters, numbers, spaces, hyphens, underscores, and periods."}), 400
+    theme = _current_theme()
     try:
-        customers = _load_customer_list()
-        if name in customers:
-            #session["customers"] = name
-            return jsonify({"ok": True, "customers": sorted(customers), "message": f'"{name}" already exists.'}), 200
-        customers.append(name)
-        _save_customer_list(customers)
-        #session["customers"] = name
-        return jsonify({"ok": True, "customers": sorted(set(customers)), "message": f'Customer "{name}" added.'})
+        store = _load_customer_store()
+        if name in store["customers"]:
+            return jsonify({"ok": True, "customers": _visible_customers(store, theme),
+                            "message": f'"{name}" already exists.'}), 200
+        store["customers"].append(name)
+        # Tag the new customer with the theme active when it was created, so it is
+        # only listed under that theme (untagged legacy customers stay global).
+        store["themes"][name] = theme
+        _save_customer_store(store)
+        return jsonify({"ok": True, "customers": _visible_customers(store, theme),
+                        "message": f'Customer "{name}" added.'})
     except NoCredentialsError:
         return jsonify({"error": "AWS credentials are not configured on the server."}), 500
     except ClientError as exc:
@@ -3468,6 +3510,12 @@ def customers_delete():
     if not name:
         return jsonify({"error": "Customer name is required."}), 400
     active_username = session.get("username", "unknown")
+    theme = _current_theme()
+    # Only allow deleting a customer that is visible under the current theme, so a
+    # themed customer can't be wiped from a theme that can't even see it.
+    _store0 = _load_customer_store()
+    if name in _store0["customers"] and name not in _visible_customers(_store0, theme):
+        return jsonify({"error": f'"{name}" is not visible under the current theme and cannot be deleted here.'}), 403
     prefix = f"TCO-GUI/{active_username}/{name}/"
     deleted = 0
     try:
@@ -3486,9 +3534,11 @@ def customers_delete():
             s3.delete_objects(Bucket=s3_bucket, Delete={"Objects": batch})
             deleted += len(batch)
 
-        # Remove the customer from the global list
-        customers = [c for c in _load_customer_list() if c != name]
-        _save_customer_list(customers)
+        # Remove the customer from the store (its theme tag is dropped too).
+        store = _load_customer_store()
+        store["customers"] = [c for c in store["customers"] if c != name]
+        store["themes"].pop(name, None)
+        _save_customer_store(store)
 
         # Clear the active selection if it pointed at this customer
         if session.get("active_customer") == name:
@@ -3496,7 +3546,7 @@ def customers_delete():
 
         return jsonify({
             "ok": True,
-            "customers": sorted(set(customers)),
+            "customers": _visible_customers(store, theme),
             "deleted_objects": deleted,
             "message": f'Customer "{name}" and {deleted} data object(s) removed.',
         })
@@ -3517,6 +3567,16 @@ def customers_select():
         return jsonify({"error": "Customer name is required."}), 400
     session["active_customer"] = name
     return jsonify({"ok": True, "active_customer": name})
+
+@app.route("/api/theme", methods=["POST"])
+def set_active_theme():
+    """Record the active UI theme in the session so customer listing/creation can
+    scope by it. Not login-gated (the theme selector is available pre-login);
+    harmless if set before signing in."""
+    body = request.get_json(force=True) or {}
+    theme = str(body.get("theme", "")).strip() or "everpure"
+    session["active_theme"] = theme
+    return jsonify({"ok": True, "active_theme": theme})
 
 @app.route("/api/customers/active", methods=["GET"])
 @login_required
