@@ -3373,10 +3373,11 @@ def _save_customer_store(store):
     )
 
 def _visible_customers(store, theme):
-    """Names visible under `theme`: those tagged with that theme, plus any untagged
-    (legacy/global) customers, which appear in every theme."""
+    """Names visible under `theme`. A customer's effective theme is its tag, or
+    'everpure' if untagged — so legacy/pre-theming customers are pinned to the
+    default Everpure theme and do not appear under the brand themes."""
     themes = store.get("themes", {}) or {}
-    out = [n for n in (store.get("customers", []) or []) if (not themes.get(n)) or themes.get(n) == theme]
+    out = [n for n in (store.get("customers", []) or []) if (themes.get(n) or "everpure") == theme]
     return sorted(set(out))
 
 def _current_theme(default="everpure"):
