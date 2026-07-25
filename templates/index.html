@@ -3484,22 +3484,29 @@ function resetGuiToDefaults(delayMs) {
       row.style.cssText = "display:flex;align-items:center;gap:8px;";
       const isActive = name === activeCustomer;
       const curT = customerThemes[name] || "everpure";
-      const opts = THEME_OPTIONS.map(([v, lab]) =>
-        `<option value="${v}"${v === curT ? " selected" : ""}>${lab}</option>`).join("");
+      // Theme reassignment is only offered from the Everpure master view. Under a
+      // brand theme, show the customer's theme as a static badge instead.
+      const onEverpure = curTheme() === "everpure";
+      const themeCtl = onEverpure
+        ? `<select class="customer-theme-select" title="Theme this customer is visible under"
+            style="margin-left:auto;padding:4px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:.72rem;cursor:pointer;">${
+              THEME_OPTIONS.map(([v, lab]) => `<option value="${v}"${v === curT ? " selected" : ""}>${lab}</option>`).join("")
+            }</select>`
+        : `<span class="badge" title="Reassign themes from the Everpure theme" style="margin-left:auto;">${escHtml((THEME_OPTIONS.find(o => o[0] === curT) || [,curT])[1])}</span>`;
       row.innerHTML = `
         <button class="btn-sm customer-select-btn" data-name="${escHtml(name)}"
           style="${isActive ? "background:var(--accent);border-color:var(--accent);color:#fff;" : ""}">
           ${isActive ? "✔ " : ""}${escHtml(name)}
         </button>
         ${isActive ? `<span class="badge green">active</span>` : ""}
-        <select class="customer-theme-select" title="Theme this customer is visible under"
-          style="margin-left:auto;padding:4px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:.72rem;cursor:pointer;">${opts}</select>
+        ${themeCtl}
         <button class="btn-sm customer-delete-btn" title="Remove customer and all its data"
           style="padding:4px 9px;color:var(--danger);border-color:var(--danger);">✕</button>
       `;
       row.querySelector(".customer-select-btn").addEventListener("click", () => selectCustomer(name));
       row.querySelector(".customer-delete-btn").addEventListener("click", () => deleteCustomer(name));
-      row.querySelector(".customer-theme-select").addEventListener("change", (e) => reassignCustomerTheme(name, e.target.value));
+      const themeSel = row.querySelector(".customer-theme-select");
+      if (themeSel) themeSel.addEventListener("change", (e) => reassignCustomerTheme(name, e.target.value));
       listContainer.appendChild(row);
     });
   }

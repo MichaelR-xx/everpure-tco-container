@@ -3517,16 +3517,19 @@ def customers_set_theme():
         return jsonify({"error": "Customer name is required."}), 400
     if theme not in KNOWN_THEMES:
         return jsonify({"error": f"Unknown theme '{theme}'. Valid themes: {', '.join(sorted(KNOWN_THEMES))}."}), 400
+    # Reassignment is only permitted from the Everpure (master) theme, which is
+    # the only view that can see every customer.
+    view = (request.args.get("theme") or session.get("active_theme") or "everpure").strip() or "everpure"
+    if view != "everpure":
+        return jsonify({"error": "Customers can only be reassigned from the Everpure theme."}), 403
     try:
         store = _load_customer_store()
         if name not in store["customers"]:
             return jsonify({"error": f'"{name}" does not exist.'}), 404
         store["themes"][name] = theme
         _save_customer_store(store)
-        # Return the list for the CURRENT viewing theme (the reassigned customer
-        # may drop out of a brand-theme view if it was moved elsewhere). The
-        # viewing theme comes from ?theme=/session — NOT the body's target theme.
-        view = (request.args.get("theme") or session.get("active_theme") or "everpure").strip() or "everpure"
+        # Return the list for the Everpure master view (the only view reassignment
+        # is allowed from), so the reassigned customer stays listed.
         return jsonify({"ok": True, "customers": _visible_customers(store, view),
                         "themes": store.get("themes", {}),
                         "message": f'"{name}" moved to the {theme.title()} theme.'})
