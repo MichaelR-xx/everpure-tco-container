@@ -3657,7 +3657,7 @@ function resetGuiToDefaults(delayMs) {
       const [activeRes, authRes, custRes] = await Promise.all([
         fetch("/api/customers/active"),
         fetch("/api/auth/status"),
-        fetch("/api/customers"),
+        fetch("/api/customers?theme=" + encodeURIComponent(window.curTheme ? window.curTheme() : "everpure")),
       ]);
       const data     = await activeRes.json();
       const authData = await authRes.json();
@@ -3916,7 +3916,7 @@ function resetGuiToDefaults(delayMs) {
     clearMsgs(listMsgs);
     try {
       const [custRes, activeRes] = await Promise.all([
-        fetch("/api/customers"),
+        fetch("/api/customers?theme=" + encodeURIComponent(window.curTheme ? window.curTheme() : "everpure")),
         fetch("/api/customers/active"),
       ]);
       const custData   = await custRes.json();
@@ -5062,7 +5062,7 @@ function resetGuiToDefaults(delayMs) {
     runCountEl.textContent = "0 runs";
     try {
       const [custRes, activeRes] = await Promise.all([
-        fetch("/api/customers"),
+        fetch("/api/customers?theme=" + encodeURIComponent(window.curTheme ? window.curTheme() : "everpure")),
         fetch("/api/customers/active"),
       ]);
       const custData   = await custRes.json();
