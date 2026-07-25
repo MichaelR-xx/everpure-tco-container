@@ -3686,6 +3686,11 @@ function resetGuiToDefaults(delayMs) {
     loadUploadedFiles();
   };
 
+  // Live-refresh the S3 banner's customer selector when the theme changes.
+  document.addEventListener("uithemechange", () => {
+    if (window.refreshS3ActiveCustomer) window.refreshS3ActiveCustomer();
+  });
+
   // ── Uploaded data files for the active customer/scenario ──
   function fmtUploadDt(dt) {
     if (!dt || dt.length < 14) return dt || "";
@@ -3942,6 +3947,10 @@ function resetGuiToDefaults(delayMs) {
       showMsgs(listMsgs, ["Could not load customer list: " + e.message], "error");
     }
   }
+
+  // Live-refresh this page's customer dropdown when the theme changes (dropdown
+  // only — the loaded file list is left intact).
+  document.addEventListener("uithemechange", () => { populateCustomerDropdown(); });
 
   async function loadResultsList() {
     const customer = customerSelect.value;
@@ -5080,6 +5089,29 @@ function resetGuiToDefaults(delayMs) {
       showMsgs(listMsgs, ["Could not load customer list: " + e.message], "error");
     }
   };
+
+  // Live-refresh only the customer dropdown when the theme changes — preserving
+  // the current selection if it is still visible, and leaving loaded runs intact
+  // (unlike initTcoTab, which resets the whole tab).
+  async function refreshTcoCustomerDropdown() {
+    try {
+      const [custRes, activeRes] = await Promise.all([
+        fetch("/api/customers?theme=" + encodeURIComponent(window.curTheme ? window.curTheme() : "everpure")),
+        fetch("/api/customers/active"),
+      ]);
+      const customers  = (await custRes.json()).customers || [];
+      const activeCust = (await activeRes.json()).active_customer || "";
+      const prev = customerSelect.value;
+      customerSelect.innerHTML = '<option value="">— select customer —</option>';
+      customers.forEach(c => {
+        const opt = document.createElement("option");
+        opt.value = c; opt.textContent = c;
+        if (c === prev || (!prev && c === activeCust)) opt.selected = true;
+        customerSelect.appendChild(opt);
+      });
+    } catch(e) { /* leave the dropdown as-is on error */ }
+  }
+  document.addEventListener("uithemechange", () => { refreshTcoCustomerDropdown(); });
 
   async function loadRuns() {
     const customer = customerSelect.value;
