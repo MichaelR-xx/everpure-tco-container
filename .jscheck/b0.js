@@ -1,0 +1,1 @@
+window.curTheme = function(){ try { return localStorage.getItem("uiTheme") || "everpure"; } catch(e){ return "everpure"; } };
