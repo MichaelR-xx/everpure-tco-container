@@ -3430,6 +3430,12 @@ function resetGuiToDefaults(delayMs) {
 
   let activeCustomer = "";
   let activeScenario = "default";
+  let customerThemes = {};   // {name: theme} for the theme-reassignment control
+  // Theme options for the per-customer reassignment dropdown.
+  const THEME_OPTIONS = [
+    ["everpure", "Everpure"], ["wipro", "Wipro"], ["accenture", "Accenture"],
+    ["ahead", "AHEAD"], ["kyndryl", "Kyndryl"],
+  ];
 
   async function loadCustomers() {
     listContainer.innerHTML = `<div style="color:var(--muted);font-size:.82rem;">Loading…</div>`;
@@ -3444,6 +3450,7 @@ function resetGuiToDefaults(delayMs) {
       if (!activeRes.ok) throw new Error(activeData.error);
       activeCustomer = activeData.active_customer || "";
       activeScenario = activeData.active_scenario || "default";
+      customerThemes = listData.themes || {};
       scenarioInput.value = activeScenario;
       renderCustomerList(listData.customers || []);
       setActiveDisplay(activeCustomer, activeScenario);
@@ -3476,19 +3483,40 @@ function resetGuiToDefaults(delayMs) {
       const row = document.createElement("div");
       row.style.cssText = "display:flex;align-items:center;gap:8px;";
       const isActive = name === activeCustomer;
+      const curT = customerThemes[name] || "everpure";
+      const opts = THEME_OPTIONS.map(([v, lab]) =>
+        `<option value="${v}"${v === curT ? " selected" : ""}>${lab}</option>`).join("");
       row.innerHTML = `
         <button class="btn-sm customer-select-btn" data-name="${escHtml(name)}"
           style="${isActive ? "background:var(--accent);border-color:var(--accent);color:#fff;" : ""}">
           ${isActive ? "✔ " : ""}${escHtml(name)}
         </button>
         ${isActive ? `<span class="badge green">active</span>` : ""}
+        <select class="customer-theme-select" title="Theme this customer is visible under"
+          style="margin-left:auto;padding:4px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:.72rem;cursor:pointer;">${opts}</select>
         <button class="btn-sm customer-delete-btn" title="Remove customer and all its data"
-          style="margin-left:auto;padding:4px 9px;color:var(--danger);border-color:var(--danger);">✕</button>
+          style="padding:4px 9px;color:var(--danger);border-color:var(--danger);">✕</button>
       `;
       row.querySelector(".customer-select-btn").addEventListener("click", () => selectCustomer(name));
       row.querySelector(".customer-delete-btn").addEventListener("click", () => deleteCustomer(name));
+      row.querySelector(".customer-theme-select").addEventListener("change", (e) => reassignCustomerTheme(name, e.target.value));
       listContainer.appendChild(row);
     });
+  }
+
+  async function reassignCustomerTheme(name, theme) {
+    clearMsgs(messages);
+    try {
+      const res  = await fetch("/api/customers/theme?theme=" + encodeURIComponent(curTheme()), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, theme }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      customerThemes = data.themes || customerThemes;
+      showMsgs(messages, [data.message || `"${name}" moved.`], "success");
+      renderCustomerList(data.customers || []);   // may drop out of a brand-theme view
+    } catch(e) { showMsgs(messages, [e.message], "error"); loadCustomers(); }
   }
 
   async function selectCustomer(name) {
@@ -3504,6 +3532,7 @@ function resetGuiToDefaults(delayMs) {
       setActiveDisplay(name, activeScenario);
       const listRes  = await fetch("/api/customers?theme=" + encodeURIComponent(curTheme()));
       const listData = await listRes.json();
+      customerThemes = listData.themes || customerThemes;
       renderCustomerList(listData.customers || []);
       showMsgs(messages, [`Customer "${name}" is now active — resetting…`], "success");
       resetGuiToDefaults(500);   // switching customers resets every page to defaults
@@ -3519,13 +3548,14 @@ function resetGuiToDefaults(delayMs) {
     if (!ok) return;
     clearMsgs(messages);
     try {
-      const res  = await fetch("/api/customers/delete", {
+      const res  = await fetch("/api/customers/delete?theme=" + encodeURIComponent(curTheme()), {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({name}),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       if (activeCustomer === name) { activeCustomer = ""; setActiveDisplay("", activeScenario); }
+      customerThemes = data.themes || customerThemes;
       renderCustomerList(data.customers || []);
       showMsgs(messages, [data.message || `Customer "${name}" removed.`], "success");
     } catch(e) { showMsgs(messages, [e.message], "error"); }
@@ -3545,6 +3575,7 @@ function resetGuiToDefaults(delayMs) {
       if (!res.ok) throw new Error(data.error);
       showMsgs(messages, [data.message], "success");
       newInput.value = "";
+      customerThemes = data.themes || customerThemes;
       renderCustomerList(data.customers || []);
     } catch(e) { showMsgs(messages, [e.message], "error"); }
     finally { btnAdd.disabled = false; }

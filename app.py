@@ -3372,13 +3372,18 @@ def _save_customer_store(store):
         ContentType="application/json",
     )
 
+KNOWN_THEMES = {"everpure", "wipro", "accenture", "ahead", "kyndryl"}
+
 def _visible_customers(store, theme):
-    """Names visible under `theme`. A customer's effective theme is its tag, or
-    'everpure' if untagged — so legacy/pre-theming customers are pinned to the
-    default Everpure theme and do not appear under the brand themes."""
+    """Names visible under `theme`. Everpure is the master/admin view and sees
+    EVERY customer regardless of its tag. Under a brand theme, only customers
+    tagged with that theme show; a customer's effective theme is its tag, or
+    'everpure' if untagged (so legacy/pre-theming customers live under Everpure)."""
+    names = store.get("customers", []) or []
+    if theme == "everpure":
+        return sorted(set(names))
     themes = store.get("themes", {}) or {}
-    out = [n for n in (store.get("customers", []) or []) if (themes.get(n) or "everpure") == theme]
-    return sorted(set(out))
+    return sorted(set(n for n in names if (themes.get(n) or "everpure") == theme))
 
 def _current_theme(default="everpure"):
     """Resolve the active UI theme for this request: an explicit ?theme= / body
@@ -3492,7 +3497,39 @@ def customers_add():
         store["themes"][name] = theme
         _save_customer_store(store)
         return jsonify({"ok": True, "customers": _visible_customers(store, theme),
-                        "message": f'Customer "{name}" added.'})
+                        "themes": store.get("themes", {}), "message": f'Customer "{name}" added.'})
+    except NoCredentialsError:
+        return jsonify({"error": "AWS credentials are not configured on the server."}), 500
+    except ClientError as exc:
+        return jsonify({"error": f"AWS error: {exc.response['Error']['Message']}"}), 500
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+@app.route("/api/customers/theme", methods=["POST"])
+@login_required
+def customers_set_theme():
+    """Reassign a customer to a different UI theme. Assigning to 'everpure' just
+    tags it everpure (which the master view shows anyway)."""
+    body = request.get_json(force=True) or {}
+    name  = str(body.get("name", "")).strip()
+    theme = str(body.get("theme", "")).strip().lower()
+    if not name:
+        return jsonify({"error": "Customer name is required."}), 400
+    if theme not in KNOWN_THEMES:
+        return jsonify({"error": f"Unknown theme '{theme}'. Valid themes: {', '.join(sorted(KNOWN_THEMES))}."}), 400
+    try:
+        store = _load_customer_store()
+        if name not in store["customers"]:
+            return jsonify({"error": f'"{name}" does not exist.'}), 404
+        store["themes"][name] = theme
+        _save_customer_store(store)
+        # Return the list for the CURRENT viewing theme (the reassigned customer
+        # may drop out of a brand-theme view if it was moved elsewhere). The
+        # viewing theme comes from ?theme=/session — NOT the body's target theme.
+        view = (request.args.get("theme") or session.get("active_theme") or "everpure").strip() or "everpure"
+        return jsonify({"ok": True, "customers": _visible_customers(store, view),
+                        "themes": store.get("themes", {}),
+                        "message": f'"{name}" moved to the {theme.title()} theme.'})
     except NoCredentialsError:
         return jsonify({"error": "AWS credentials are not configured on the server."}), 500
     except ClientError as exc:
@@ -3548,6 +3585,7 @@ def customers_delete():
         return jsonify({
             "ok": True,
             "customers": _visible_customers(store, theme),
+            "themes": store.get("themes", {}),
             "deleted_objects": deleted,
             "message": f'Customer "{name}" and {deleted} data object(s) removed.',
         })
