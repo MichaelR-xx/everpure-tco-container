@@ -2512,6 +2512,7 @@ def _compute_detail_metrics(df, cfg_data):
     if no_region_flag:
         metrics["region_breakdown"] = []
         metrics["region_count"] = 0
+        metrics["unsupported_regions"] = []
     else:
         region_summary = (
             df.groupby(region_column_name)
@@ -2526,8 +2527,15 @@ def _compute_detail_metrics(df, cfg_data):
             .rename(columns={region_column_name: "region"})
             .to_dict(orient="records")
         )
+        # Flag each region against the pricing catalog (Azure Government / other
+        # uncovered regions can't be priced by either engine). Empty catalog =>
+        # unknown, so don't flag anything.
+        sup = _all_supported_regions()
+        for r in region_summary:
+            r["supported"] = (str(r.get("region", "")).strip().lower() in sup) if sup else True
         metrics["region_breakdown"] = region_summary
         metrics["region_count"] = len(region_summary)
+        metrics["unsupported_regions"] = [r["region"] for r in region_summary if not r["supported"]]
     dtype_summary = (
         df.groupby(disk_type_column_name)
         .agg(count=pd.NamedAgg(column=disk_type_column_name, aggfunc="count"))
@@ -3679,6 +3687,28 @@ def _load_ecan_config():
     except Exception as exc:
         print(f"Error loading ecan_config.json: {exc}")
         return {}
+
+def _all_supported_regions():
+    """Lowercase set of Azure regions the pricing catalogs cover — the union of
+    every EC SKU's and ECAN SKU's `azure_supported_regions`. Empty set on load
+    error (callers treat empty as 'unknown' → don't flag anything unsupported)."""
+    regions = set()
+    try:
+        obj = _s3_client().get_object(Bucket=s3_bucket, Key=EC_CONFIG_KEY)
+        ec  = json.loads(obj["Body"].read().decode("utf-8"))
+        for _sku, v in (ec.get("models", {}) or {}).items():
+            for r in (v.get("azure_supported_regions", []) or []):
+                regions.add(str(r).strip().lower())
+    except Exception:
+        pass
+    try:
+        for _sku, v in (_load_ecan_config() or {}).items():
+            if isinstance(v, dict):
+                for r in (v.get("azure_supported_regions", []) or []):
+                    regions.add(str(r).strip().lower())
+    except Exception:
+        pass
+    return regions
 
 def _save_customer_list(customers):
     """Back-compat writer: persist the given names while PRESERVING existing theme

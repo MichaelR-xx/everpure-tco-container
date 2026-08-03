@@ -1691,9 +1691,14 @@ body.theme-kyndryl {
 
               <!-- Region breakdown -->
               <div class="card" style="padding:0;overflow:hidden;">
-                <div style="padding:12px 16px;border-bottom:1px solid var(--border);">
+                <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
                   <div style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">By Region</div>
+                  <div style="display:flex;gap:12px;font-size:.6rem;color:var(--muted);">
+                    <span><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--success,#3fa34d);vertical-align:middle;margin-right:4px;"></span>supported</span>
+                    <span><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--danger,#d64545);vertical-align:middle;margin-right:4px;"></span>not priced</span>
+                  </div>
                 </div>
+                <div id="results-region-warning" style="display:none;padding:9px 16px;background:rgba(214,69,69,.10);border-bottom:1px solid var(--border);color:var(--danger,#d64545);font-size:.72rem;line-height:1.4;"></div>
                 <div style="overflow-x:auto;">
                   <table style="width:100%;border-collapse:collapse;font-size:.76rem;">
                     <thead>
@@ -4399,21 +4404,39 @@ function resetGuiToDefaults(delayMs) {
     }
     renderGroupTable(m.group_breakdown || []);
 
-    // Region table
+    // Region table — supported vs unsupported (not in the pricing catalog) regions
+    // are tinted differently, with a warning banner when any are unsupported.
     const regionTbody = document.getElementById("results-region-tbody");
+    const regionWarn  = document.getElementById("results-region-warning");
     regionTbody.innerHTML = "";
     const regions = m.region_breakdown || [];
+    const unsupported = m.unsupported_regions || [];
+    if (regionWarn) {
+      if (unsupported.length) {
+        const n = unsupported.length;
+        regionWarn.innerHTML = `⚠️ <strong>${n} region${n===1?"":"s"} not in the pricing catalog:</strong> ${unsupported.map(escHtml).join(", ")}. `
+          + `These can't be priced by either deployment model (Azure Government <code>usgov*</code> regions aren't supported), so their disks are excluded from any TCO.`;
+        regionWarn.style.display = "";
+      } else {
+        regionWarn.style.display = "none";
+        regionWarn.innerHTML = "";
+      }
+    }
     if (!regions.length) {
       regionTbody.innerHTML = `<tr><td colspan="4" style="padding:10px 14px;color:var(--muted);text-align:center;">No region data.</td></tr>`;
     } else {
       regions.forEach(r => {
+        const sup = (r.supported !== false);
         const tr = document.createElement("tr");
         tr.style.borderBottom = "1px solid var(--border)";
+        tr.style.background = sup ? "rgba(63,163,77,.07)" : "rgba(214,69,69,.10)";
+        const regColor = sup ? "var(--success,#3fa34d)" : "var(--danger,#d64545)";
+        const badge = sup ? "" : ` <span style="font-family:var(--font-ui);font-size:.6rem;color:var(--danger,#d64545);border:1px solid var(--danger,#d64545);border-radius:4px;padding:0 4px;vertical-align:middle;">not priced</span>`;
         tr.innerHTML = `
-          <td style="padding:7px 14px;font-family:var(--font-mono);font-size:.73rem;">${escHtml(r.region)}</td>
+          <td style="padding:7px 14px;font-family:var(--font-mono);font-size:.73rem;color:${regColor};font-weight:600;">${escHtml(r.region)}${badge}</td>
           <td style="padding:7px 10px;text-align:right;color:var(--muted);">${(r.disk_count||0).toLocaleString()}</td>
           <td style="padding:7px 10px;text-align:right;color:var(--muted);">${(r.total_capacity||0).toLocaleString(undefined,{maximumFractionDigits:1})}</td>
-          <td style="padding:7px 14px;text-align:right;color:var(--success);">$${(r.total_cost||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+          <td style="padding:7px 14px;text-align:right;color:${sup ? 'var(--success)' : 'var(--muted)'};">$${(r.total_cost||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
         `;
         regionTbody.appendChild(tr);
       });
