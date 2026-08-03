@@ -7,7 +7,7 @@ import base64
 import json
 from functools import wraps
 from botocore.exceptions import ClientError, NoCredentialsError
-from flask import Flask, render_template, request, jsonify, session, Response
+from flask import Flask, render_template, request, jsonify, session, Response, send_file, after_this_request
 import pandas as pd
 from io import StringIO, BytesIO
 import requests
@@ -3471,6 +3471,58 @@ def customers_list():
         return jsonify({"error": f"AWS error: {exc.response['Error']['Message']}"}), 500
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
+
+@app.route("/api/customers/export", methods=["GET"])
+@login_required
+def customers_export():
+    """Stream a .zip of ALL of a customer's stored data (every object under
+    TCO-GUI/<username>/<customer>/), preserving the key structure. Storage-agnostic
+    — uses the same S3 abstraction as delete/backup."""
+    global s3_bucket
+    import zipfile
+    name = str(request.args.get("customer", "")).strip() or session.get("active_customer", "")
+    if not name:
+        return jsonify({"error": "A customer is required."}), 400
+    if not re.match(r'^[\w\-. ]+$', name):
+        return jsonify({"error": "Invalid customer name."}), 400
+    active_username = session.get("username", "unknown")
+    prefix = f"TCO-GUI/{active_username}/{name}/"
+    root   = f"TCO-GUI/{active_username}/"     # zip paths are relative to the user root → top folder is the customer
+    # Build the zip on disk (avoids holding a large archive fully in memory).
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    count = 0
+    try:
+        s3 = _s3_client()
+        paginator = s3.get_paginator("list_objects_v2")
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+            for page in paginator.paginate(Bucket=s3_bucket, Prefix=prefix):
+                for obj in page.get("Contents", []):
+                    key = obj["Key"]
+                    if key.endswith("/"):
+                        continue
+                    body = s3.get_object(Bucket=s3_bucket, Key=key)["Body"].read()
+                    zf.writestr(key[len(root):], body)   # e.g. "ATT/default/.../group_summary.csv"
+                    count += 1
+        tmp.close()
+        if count == 0:
+            os.unlink(tmp.name)
+            return jsonify({"error": f'No stored data found for customer "{name}".'}), 404
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe  = re.sub(r'[^\w\-.]+', '_', name)
+        fname = f"{safe}_export_{stamp}.zip"
+
+        @after_this_request
+        def _cleanup(resp):
+            try: os.unlink(tmp.name)
+            except Exception: pass
+            return resp
+
+        return send_file(tmp.name, mimetype="application/zip",
+                         as_attachment=True, download_name=fname)
+    except Exception as exc:
+        try: os.unlink(tmp.name)
+        except Exception: pass
+        return jsonify({"error": f"Could not build export: {exc}"}), 500
 
 @app.route("/api/customers/add", methods=["POST"])
 @login_required
