@@ -8051,9 +8051,10 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
         reg_txt = (", ".join(regs)) if regs else "the data's region(s)"
         raise ValueError(
             "No Everpure arrays could be sized for this dataset — none of its regions "
-            f"({reg_txt}) are supported by the Dedicated (EC) pricing catalog. "
-            "Azure Government regions (usgov*) aren't in the catalog. "
-            "Try the Azure Native deployment model, which does support this data."
+            f"({reg_txt}) are in the Dedicated (EC) pricing catalog. Azure Government "
+            "regions (usgov*) aren't priced. For data in commercial Azure regions the "
+            "Azure Native model is an alternative; Gov regions aren't supported by "
+            "either model."
         )
 
     cost_sheet, df_groups = calc_best_ec_config(array_costs, ec_config, ec_sku_bias, group_list, df_parsed, 1)
