@@ -5357,6 +5357,19 @@ function resetGuiToDefaults(delayMs) {
   // Apply a settings object to the review controls. `which` limits which fields are
   // applied: "all", "commercial" (discounts only), or "inclusion" (min-savings /
   // include-all / regions only).
+  // Business rule: the Partner Margin (partner discount) may never exceed the
+  // Everpure Discount. If it does, lower the partner value to match and sync its
+  // label. Called whenever either slider changes or a run's settings are applied.
+  function clampPartnerToEverpure() {
+    const eEl = $("tco-everpure-discount"), pEl = $("tco-partner-margin");
+    if (!eEl || !pEl) return;
+    if (num(pEl.value) > num(eEl.value)) {
+      pEl.value = eEl.value;
+      const lbl = $("tco-val-partner-margin");
+      if (lbl) lbl.textContent = `${pEl.value}%`;
+    }
+  }
+
   function applyControls(s, which) {
     if (!s) return;
     const doCom = which === "all" || which === "commercial";
@@ -5365,6 +5378,7 @@ function resetGuiToDefaults(delayMs) {
       $("tco-everpure-discount").value = Math.round((s.eDisc || 0) * 100);
       $("tco-partner-margin").value    = Math.round((s.margin || 0) * 100);
       $("tco-azure-discount").value    = Math.round((s.aDisc || 0) * 100);
+      clampPartnerToEverpure();   // enforce partner ≤ everpure on load too
       $("tco-val-everpure-discount").textContent = `${$("tco-everpure-discount").value}%`;
       $("tco-val-partner-margin").textContent    = `${$("tco-partner-margin").value}%`;
       $("tco-val-azure-discount").textContent    = `${$("tco-azure-discount").value}%`;
@@ -6931,6 +6945,8 @@ function resetGuiToDefaults(delayMs) {
    ["tco-azure-discount","tco-val-azure-discount"]].forEach(([slider, label]) => {
     $(slider).addEventListener("input", () => {
       $(label).textContent = `${$(slider).value}%`;
+      // Keep Partner Margin ≤ Everpure Discount when either of them moves.
+      if (slider === "tco-everpure-discount" || slider === "tco-partner-margin") clampPartnerToEverpure();
       if (!isLockedFollower()) $("tco-include-all").checked = false;   // adjusting a filter clears "All"
       recompute();
     });
