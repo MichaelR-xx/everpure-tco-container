@@ -3510,7 +3510,7 @@ function resetGuiToDefaults(delayMs) {
       `;
       row.querySelector(".customer-select-btn").addEventListener("click", () => selectCustomer(name));
       row.querySelector(".customer-delete-btn").addEventListener("click", () => deleteCustomer(name));
-      row.querySelector(".customer-export-btn").addEventListener("click", (e) => exportCustomer(name, e.currentTarget));
+      row.querySelector(".customer-export-btn").addEventListener("click", () => exportCustomer(name));
       const themeSel = row.querySelector(".customer-theme-select");
       if (themeSel) themeSel.addEventListener("change", (e) => reassignCustomerTheme(name, e.target.value));
       listContainer.appendChild(row);
@@ -3594,33 +3594,17 @@ function resetGuiToDefaults(delayMs) {
     finally { btnAdd.disabled = false; }
   }
 
-  // Download a .zip of everything stored for one customer.
-  async function exportCustomer(name, btn) {
-    const old = btn ? btn.textContent : "";
-    if (btn) { btn.disabled = true; btn.textContent = "Zipping…"; }
+  // Download a .zip of everything stored for one customer. Streams straight to
+  // disk via a direct link (the browser writes the archive as it arrives — no
+  // in-memory buffering), so it scales to multi-GB customers. The server sets
+  // the filename via Content-Disposition.
+  function exportCustomer(name) {
     clearMsgs(messages);
-    try {
-      const res = await fetch("/api/customers/export?customer=" + encodeURIComponent(name));
-      if (!res.ok) {
-        let msg = "Export failed.";
-        try { msg = (await res.json()).error || msg; } catch(_) {}
-        throw new Error(msg);
-      }
-      const blob = await res.blob();
-      let fname = name + "_export.zip";
-      const cd = res.headers.get("Content-Disposition") || "";
-      const m = cd.match(/filename="?([^"]+)"?/);
-      if (m) fname = m[1];
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = fname;
-      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-      showMsgs(messages, [`Downloaded ${fname} (${(blob.size / 1048576).toFixed(1)} MB).`], "success");
-    } catch(e) {
-      showMsgs(messages, ["Export error: " + e.message], "error");
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = old; }
-    }
+    const a = document.createElement("a");
+    a.href = "/api/customers/export?customer=" + encodeURIComponent(name);
+    a.rel = "noopener";
+    document.body.appendChild(a); a.click(); a.remove();
+    showMsgs(messages, [`Preparing the "${name}" export — the download will start once the archive is built (larger customers take a moment).`], "success");
   }
 
   async function saveScenario() {
