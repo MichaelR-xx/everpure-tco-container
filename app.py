@@ -3232,9 +3232,11 @@ def _current_version():
     except Exception:
         return ""
 
-def _gh_latest_version():
-    """VERSION file contents on the tracked branch (public repo, no auth)."""
-    raw = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{GITHUB_BRANCH}/VERSION"
+def _gh_version_at(ref):
+    """VERSION file contents at a specific ref/SHA (public repo, no auth). Pinning
+    to the commit SHA avoids the branch raw-CDN cache (~5 min stale), so the check
+    reflects a just-pushed release immediately."""
+    raw = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{ref}/VERSION"
     r = requests.get(raw, timeout=15, headers={"User-Agent": "everpure-tco-updater"})
     r.raise_for_status()
     return r.text.strip()
@@ -3272,7 +3274,7 @@ def app_version_check():
     current_version = _current_version()
     latest_version  = None
     try:
-        latest_version = _gh_latest_version()
+        latest_version = _gh_version_at(latest["sha"])   # SHA-pinned → no CDN staleness
     except Exception:
         latest_version = None
 
@@ -3287,7 +3289,7 @@ def app_version_check():
             for rel in _UPDATE_CORE_FILES:
                 with open(os.path.join(_app_dir(), rel), "rb") as f:
                     local = hashlib.sha256(f.read()).hexdigest()
-                raw = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{GITHUB_BRANCH}/{rel}"
+                raw = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{latest['sha']}/{rel}"
                 rr = requests.get(raw, timeout=20, headers={"User-Agent": "everpure-tco-updater"})
                 rr.raise_for_status()
                 if hashlib.sha256(rr.content).hexdigest() != local:
