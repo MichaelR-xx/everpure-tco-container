@@ -715,8 +715,8 @@ body.theme-kyndryl {
         <button class="btn-primary" id="btn-login">Sign In</button>
         <div class="login-msg" id="login-msg"></div>
         <div class="login-hint">
-          Demo credentials: <code>admin</code> / <code>password123</code><br>
-          or <code>demo</code> / <code>demo</code>
+          Full access: <code>admin</code> / <code>password123</code> &nbsp;·&nbsp; <code>demo</code> / <code>demo</code><br>
+          Partner logins (see only their theme): <code>wipro</code> · <code>accenture</code> · <code>ahead</code> · <code>kyndryl</code> — password is <code>&lt;name&gt;123</code>
         </div>
         <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
           <label style="font-size:.68rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Restore from a backup</label>
@@ -2898,6 +2898,7 @@ async function doLogin() {
       loginMsg.className = "login-msg success";
       loginMsg.textContent = `Welcome, ${data.username}!`;
       unlockTabs(data.username);
+      if (window.applyThemeLock) window.applyThemeLock(data.locked_theme || "");
       loginPass.value = "";
       setTimeout(() => switchTab("customers"), 400);
     } else {
@@ -3047,6 +3048,7 @@ function resetGuiToDefaults(delayMs) {
   if (!configured) return;
   try {
     const data = await (await fetch("/api/auth/status")).json();
+    if (window.applyThemeLock) window.applyThemeLock(data.locked_theme || "");
     if (data.logged_in) { unlockTabs(data.username); switchTab("customers"); }
   } catch(e) { /* ignore */ }
 })();
@@ -8473,6 +8475,20 @@ function resetGuiToDefaults(delayMs) {
   if (!THEMES[saved]) saved = "everpure";
   sel.value = saved;
   applyTheme(saved);
+
+  // Partner logins are locked to one theme: apply it and hide the switcher.
+  // Full-access logins (admin/demo) keep the switcher visible.
+  window.applyThemeLock = function(lockedTheme) {
+    if (lockedTheme && THEMES[lockedTheme]) {
+      try { localStorage.setItem("uiTheme", lockedTheme); } catch (e) {}
+      sel.value = lockedTheme;
+      applyTheme(lockedTheme);
+      sel.style.display = "none";
+      document.dispatchEvent(new CustomEvent("uithemechange", { detail: { theme: lockedTheme } }));
+    } else {
+      sel.style.display = "";
+    }
+  };
 })();
 </script>
 </body>

@@ -3193,7 +3193,13 @@ def api_login():
     session["logged_in"] = True
     session["username"]  = username
     session["date_time_str"] = datetime.now().strftime("%Y%m%d%H%M%S")
-    return jsonify({"ok": True, "username": username})
+    # Partner logins are locked to their theme; that lock is enforced server-side
+    # in _current_theme() so it can't be bypassed by crafted requests.
+    locked = USER_THEME.get(username, "")
+    session["locked_theme"] = locked
+    if locked:
+        session["active_theme"] = locked
+    return jsonify({"ok": True, "username": username, "locked_theme": locked})
 
 @app.route("/api/auth/logout", methods=["POST"])
 def api_logout():
@@ -3206,6 +3212,7 @@ def api_auth_status():
         "logged_in":    bool(session.get("logged_in")),
         "username":     session.get("username", ""),
         "storage_kind": (_load_storage_config() or {}).get("kind", ""),
+        "locked_theme": session.get("locked_theme", "") or "",
     })
 
 # ══════════════════════════════════════════════════════════
@@ -3579,8 +3586,13 @@ def _visible_customers(store, theme):
     return sorted(set(n for n in names if (themes.get(n) or "everpure") == theme))
 
 def _current_theme(default="everpure"):
-    """Resolve the active UI theme for this request: an explicit ?theme= / body
-    theme wins, else the session value, else the default."""
+    """Resolve the active UI theme for this request. A partner login is LOCKED to
+    its theme (enforced here so a crafted ?theme= can't widen visibility). For
+    unrestricted logins: an explicit ?theme= / body theme wins, else the session
+    value, else the default."""
+    locked = session.get("locked_theme")
+    if locked:
+        return locked
     try:
         body = request.get_json(silent=True) or {}
     except Exception:
@@ -3590,6 +3602,12 @@ def _current_theme(default="everpure"):
          or session.get("active_theme")
          or default)
     return str(t).strip() or default
+
+def _visible_theme_map(store, theme):
+    """The {name: theme} tag map restricted to customers visible under `theme`, so
+    a partner login never learns the names of other themes' customers."""
+    tm = store.get("themes", {}) or {}
+    return {n: (tm.get(n) or "everpure") for n in _visible_customers(store, theme)}
 
 def _load_customer_list():
     """Back-compat: the full list of customer name strings (unfiltered by theme).
@@ -3657,7 +3675,7 @@ def customers_list():
         store = _load_customer_store()
         theme = _current_theme()
         return jsonify({"ok": True, "customers": _visible_customers(store, theme),
-                        "theme": theme, "themes": store.get("themes", {})})
+                        "theme": theme, "themes": _visible_theme_map(store, theme)})
     except NoCredentialsError:
         return jsonify({"error": "AWS credentials are not configured on the server."}), 500
     except ClientError as exc:
@@ -3678,6 +3696,10 @@ def customers_export():
         return jsonify({"error": "A customer is required."}), 400
     if not re.match(r'^[\w\-. ]+$', name):
         return jsonify({"error": "Invalid customer name."}), 400
+    # Only export customers visible under the caller's theme (a partner login
+    # can't export another theme's data by guessing the name).
+    if name not in _visible_customers(_load_customer_store(), _current_theme()):
+        return jsonify({"error": f'"{name}" is not available under your current access.'}), 403
     active_username = session.get("username", "unknown")
     prefix = f"TCO-GUI/{active_username}/{name}/"
     root   = f"TCO-GUI/{active_username}/"     # zip paths are relative to the user root → top folder is the customer
@@ -3742,7 +3764,7 @@ def customers_add():
         store["themes"][name] = theme
         _save_customer_store(store)
         return jsonify({"ok": True, "customers": _visible_customers(store, theme),
-                        "themes": store.get("themes", {}), "message": f'Customer "{name}" added.'})
+                        "themes": _visible_theme_map(store, theme), "message": f'Customer "{name}" added.'})
     except NoCredentialsError:
         return jsonify({"error": "AWS credentials are not configured on the server."}), 500
     except ClientError as exc:
@@ -3762,9 +3784,10 @@ def customers_set_theme():
         return jsonify({"error": "Customer name is required."}), 400
     if theme not in KNOWN_THEMES:
         return jsonify({"error": f"Unknown theme '{theme}'. Valid themes: {', '.join(sorted(KNOWN_THEMES))}."}), 400
-    # Reassignment is only permitted from the Everpure (master) theme, which is
-    # the only view that can see every customer.
-    view = (request.args.get("theme") or session.get("active_theme") or "everpure").strip() or "everpure"
+    # Reassignment is only permitted from the Everpure (master) view — the only
+    # view that can see every customer. _current_theme() honors partner locks, so
+    # a locked login can never reach 'everpure' here.
+    view = _current_theme()
     if view != "everpure":
         return jsonify({"error": "Customers can only be reassigned from the Everpure theme."}), 403
     try:
@@ -3773,10 +3796,8 @@ def customers_set_theme():
             return jsonify({"error": f'"{name}" does not exist.'}), 404
         store["themes"][name] = theme
         _save_customer_store(store)
-        # Return the list for the Everpure master view (the only view reassignment
-        # is allowed from), so the reassigned customer stays listed.
         return jsonify({"ok": True, "customers": _visible_customers(store, view),
-                        "themes": store.get("themes", {}),
+                        "themes": _visible_theme_map(store, view),
                         "message": f'"{name}" moved to the {theme.title()} theme.'})
     except NoCredentialsError:
         return jsonify({"error": "AWS credentials are not configured on the server."}), 500
@@ -3833,7 +3854,7 @@ def customers_delete():
         return jsonify({
             "ok": True,
             "customers": _visible_customers(store, theme),
-            "themes": store.get("themes", {}),
+            "themes": _visible_theme_map(store, theme),
             "deleted_objects": deleted,
             "message": f'Customer "{name}" and {deleted} data object(s) removed.',
         })
@@ -3862,6 +3883,9 @@ def set_active_theme():
     harmless if set before signing in."""
     body = request.get_json(force=True) or {}
     theme = str(body.get("theme", "")).strip() or "everpure"
+    locked = session.get("locked_theme")
+    if locked:
+        theme = locked   # partner logins can't change their theme
     session["active_theme"] = theme
     return jsonify({"ok": True, "active_theme": theme})
 
@@ -8830,8 +8854,21 @@ def calc_best_ec_config(array_costs,ec_config, ec_sku_bias,group_list,df_csv,yea
 # ── Credentials ───────────────────────────────────────────
 # Demo credentials — swap for a real auth store / env vars in prod
 VALID_USERS = {
-    "admin": "password123",
-    "demo":  "demo",
+    "admin": "password123",   # full access — every theme, master view
+    "demo":  "demo",          # full access
+    # Partner logins — each locked to its own theme (see USER_THEME).
+    "wipro":     "wipro123",
+    "accenture": "accenture123",
+    "ahead":     "ahead123",
+    "kyndryl":   "kyndryl123",
+}
+# Logins locked to a single UI theme: they may only see that theme's customers
+# and cannot switch themes. Users NOT listed here (admin, demo) are unrestricted.
+USER_THEME = {
+    "wipro":     "wipro",
+    "accenture": "accenture",
+    "ahead":     "ahead",
+    "kyndryl":   "kyndryl",
 }
 
 # ── S3 Configuration ──────────────────────────────────────
