@@ -332,6 +332,7 @@ def _apply_session_storage():
         allowed = (
             p == "/" or p.startswith("/static/")
             or p.startswith("/api/storage/config")
+            or p.startswith("/api/app/")            # software update check/apply (login page)
             or p in ("/api/auth/status", "/api/auth/logout")
         )
         if not allowed:
@@ -3206,6 +3207,171 @@ def api_auth_status():
         "username":     session.get("username", ""),
         "storage_kind": (_load_storage_config() or {}).get("kind", ""),
     })
+
+# ══════════════════════════════════════════════════════════
+#  Self-update from GitHub (public repo)
+# ══════════════════════════════════════════════════════════
+GITHUB_OWNER  = "MichaelR-xx"
+GITHUB_REPO   = "everpure-tco-container"
+GITHUB_BRANCH = "master"
+# Files that define the running app; used to detect drift vs the latest on GitHub.
+_UPDATE_CORE_FILES = ["app.py", "templates/index.html"]
+# Top-level items copied in on update.
+_UPDATE_ITEMS = ["app.py", "requirements.txt", "templates", "static", "notes", "tools"]
+APP_VERSION_FILE = os.path.join(os.environ.get("EVERPURE_LOCAL_ROOT", "/data"), ".everpure_app_version")
+
+def _app_dir():
+    return os.path.dirname(os.path.abspath(__file__))
+
+def _gh_latest_commit():
+    """Latest commit metadata for the tracked branch (public repo, no auth)."""
+    api = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/commits/{GITHUB_BRANCH}"
+    r = requests.get(api, timeout=15, headers={"User-Agent": "everpure-tco-updater",
+                                               "Accept": "application/vnd.github+json"})
+    r.raise_for_status()
+    j = r.json()
+    return {
+        "sha":  j.get("sha", ""),
+        "date": (j.get("commit", {}).get("committer", {}) or {}).get("date", ""),
+        "message": (j.get("commit", {}) or {}).get("message", "").split("\n")[0],
+    }
+
+@app.route("/api/app/version", methods=["GET"])
+def app_version_check():
+    """Report whether the running app matches the latest commit on GitHub. 'Latest'
+    is decided by comparing the core source files (app.py + templates/index.html)
+    against the raw files on the branch; after an in-app update the recorded SHA is
+    used as a fast path."""
+    import hashlib
+    try:
+        latest = _gh_latest_commit()
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"Could not reach GitHub: {exc}"}), 502
+    # Fast path: a prior in-app update recorded the installed SHA.
+    installed_sha = None
+    try:
+        if os.path.exists(APP_VERSION_FILE):
+            installed_sha = open(APP_VERSION_FILE).read().strip()
+    except Exception:
+        installed_sha = None
+    up_to_date = None
+    if installed_sha:
+        up_to_date = (installed_sha == latest["sha"])
+    if up_to_date is None:
+        # Compare core file contents (local vs raw@branch).
+        try:
+            up_to_date = True
+            for rel in _UPDATE_CORE_FILES:
+                with open(os.path.join(_app_dir(), rel), "rb") as f:
+                    local = hashlib.sha256(f.read()).hexdigest()
+                raw = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{GITHUB_BRANCH}/{rel}"
+                rr = requests.get(raw, timeout=20, headers={"User-Agent": "everpure-tco-updater"})
+                rr.raise_for_status()
+                if hashlib.sha256(rr.content).hexdigest() != local:
+                    up_to_date = False
+                    break
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"Could not compare versions: {exc}"}), 502
+    return jsonify({
+        "ok": True,
+        "up_to_date": up_to_date,
+        "latest_sha": latest["sha"][:12],
+        "latest_date": latest["date"],
+        "latest_message": latest["message"],
+        "installed_sha": (installed_sha[:12] if installed_sha else None),
+    })
+
+@app.route("/api/app/update", methods=["POST"])
+def app_update():
+    """Pull the latest source from GitHub into the running app and restart.
+    Gated by admin credentials. In-place: durable across restarts, but a full
+    image rebuild (docker compose up --build) from a stale checkout would revert."""
+    import tarfile, tempfile, shutil, py_compile, sys, threading, hashlib
+    body = request.get_json(force=True) or {}
+    u = str(body.get("username", "")).strip()
+    p = str(body.get("password", ""))
+    if VALID_USERS.get(u) != p:
+        return jsonify({"error": "Valid admin credentials are required to update."}), 401
+
+    tmp = None
+    try:
+        # 1) Download + extract the branch tarball (public repo).
+        url = f"https://codeload.github.com/{GITHUB_OWNER}/{GITHUB_REPO}/tar.gz/refs/heads/{GITHUB_BRANCH}"
+        data = requests.get(url, timeout=120, headers={"User-Agent": "everpure-tco-updater"}).content
+        tmp = tempfile.mkdtemp(prefix="ep_update_")
+        with tarfile.open(fileobj=BytesIO(data), mode="r:gz") as tf:
+            try:
+                tf.extractall(tmp, filter="data")     # py3.12: block path traversal
+            except TypeError:
+                tf.extractall(tmp)
+        tops = [d for d in os.listdir(tmp) if os.path.isdir(os.path.join(tmp, d))]
+        if not tops:
+            raise RuntimeError("downloaded archive was empty")
+        top = os.path.join(tmp, tops[0])
+        new_app = os.path.join(top, "app.py")
+        if not os.path.exists(new_app):
+            raise RuntimeError("downloaded archive is missing app.py")
+
+        # 2) Syntax-guard the new app.py — never install a version that won't parse.
+        py_compile.compile(new_app, doraise=True)
+
+        app_dir = _app_dir()
+        # 3) Back up the current install (for manual rollback).
+        stamp  = datetime.now().strftime("%Y%m%d%H%M%S")
+        backup = os.path.join(os.environ.get("EVERPURE_LOCAL_ROOT", "/data"), f".update_backup_{stamp}")
+        os.makedirs(backup, exist_ok=True)
+        for it in _UPDATE_ITEMS:
+            src = os.path.join(app_dir, it)
+            if os.path.exists(src):
+                dst = os.path.join(backup, it)
+                if os.path.isdir(src): shutil.copytree(src, dst, dirs_exist_ok=True)
+                else:                  shutil.copy2(src, dst)
+
+        # 4) If requirements changed, install them first; abort cleanly on failure.
+        pip_note = ""
+        req_new = os.path.join(top, "requirements.txt")
+        req_cur = os.path.join(app_dir, "requirements.txt")
+        def _read(pth):
+            try:
+                with open(pth, "rb") as f: return f.read()
+            except Exception: return b""
+        if os.path.exists(req_new) and _read(req_new) != _read(req_cur):
+            r = subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_new],
+                               capture_output=True, text=True, timeout=600)
+            if r.returncode != 0:
+                shutil.rmtree(tmp, ignore_errors=True)
+                return jsonify({"error": "New dependencies failed to install; update aborted "
+                                         "(nothing changed). " + (r.stderr or "")[-400:]}), 500
+            pip_note = " Dependencies were updated."
+
+        # 5) Copy the new files over the running install.
+        for it in _UPDATE_ITEMS:
+            src = os.path.join(top, it)
+            if not os.path.exists(src):
+                continue
+            dst = os.path.join(app_dir, it)
+            if os.path.isdir(src):
+                shutil.copytree(src, dst, dirs_exist_ok=True)
+            else:
+                shutil.copy2(src, dst)
+
+        # 6) Record the installed SHA so future checks are exact.
+        try:
+            open(APP_VERSION_FILE, "w").write(_gh_latest_commit()["sha"])
+        except Exception:
+            pass
+        shutil.rmtree(tmp, ignore_errors=True)
+
+        # 7) Restart: exit the process; Docker's restart policy brings it back on
+        # the new code. Delay so this response reaches the browser first.
+        threading.Timer(1.5, lambda: os._exit(0)).start()
+        return jsonify({"ok": True, "restarting": True,
+                        "message": "Update applied." + pip_note + " Restarting the server…"})
+    except Exception as exc:
+        if tmp:
+            try: shutil.rmtree(tmp, ignore_errors=True)
+            except Exception: pass
+        return jsonify({"error": f"Update failed: {exc}"}), 500
 
 # ══════════════════════════════════════════════════════════
 #  Storage location — a deployment-wide setting saved in a local file

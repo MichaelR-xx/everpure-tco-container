@@ -725,6 +725,16 @@ body.theme-kyndryl {
           <button class="btn-sm" id="restore-btn" type="button">⬆ Import backup (.zip)</button>
           <div id="restore-msg" class="login-msg" style="margin-top:8px;"></div>
         </div>
+
+        <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
+          <label style="font-size:.68rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Software update</label>
+          <p style="font-size:.75rem;color:var(--muted);margin:4px 0 8px;">Check GitHub for a newer version and update the running app in place. Updating requires admin credentials (enter them above) and restarts the server.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <button class="btn-sm" id="btn-check-update" type="button">⟳ Check for updates</button>
+            <button class="btn-sm save" id="btn-do-update" type="button" style="display:none;">⬆ Update now</button>
+          </div>
+          <div id="update-msg" class="login-msg" style="margin-top:8px;"></div>
+        </div>
       </div>
 
       <button class="help-btn" id="btn-help-workflow" data-help="workflow" style="margin-top:14px;width:100%;justify-content:center;padding:9px 12px;font-size:.82rem;">📖 How to use this tool</button>
@@ -2938,6 +2948,70 @@ btnLogin.addEventListener("click", doLogin);
       }
     });
   }
+})();
+
+// ── Software update (login page): check GitHub + apply an in-place update ──
+(function(){
+  const btnCheck = document.getElementById("btn-check-update");
+  const btnDo    = document.getElementById("btn-do-update");
+  const msg      = document.getElementById("update-msg");
+  if (!btnCheck || !btnDo || !msg) return;
+
+  btnCheck.addEventListener("click", async () => {
+    msg.style.color = ""; msg.textContent = "Checking GitHub…";
+    btnDo.style.display = "none";
+    try {
+      const r = await fetch("/api/app/version", { cache: "no-store" });
+      const d = await r.json();
+      if (!r.ok || !d.ok) throw new Error(d.error || "Check failed");
+      if (d.up_to_date) {
+        msg.style.color = "";
+        msg.textContent = `✓ You're on the latest version${d.latest_sha ? " (" + d.latest_sha + ")" : ""}.`;
+      } else {
+        msg.style.color = "";
+        msg.textContent = `Update available → ${d.latest_sha}${d.latest_message ? " — " + d.latest_message : ""}. Enter admin credentials above, then click “Update now”.`;
+        btnDo.style.display = "";
+      }
+    } catch(e) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = "Could not check for updates: " + e.message;
+    }
+  });
+
+  btnDo.addEventListener("click", async () => {
+    const u = (document.getElementById("login-user") || {}).value || "";
+    const p = (document.getElementById("login-pass") || {}).value || "";
+    if (!u || !p) { msg.style.color = "var(--danger)"; msg.textContent = "Enter your admin username and password above to update."; return; }
+    if (!window.confirm("Update the app to the latest version from GitHub?\n\nThe server will restart and you'll be signed out briefly.")) return;
+    btnDo.disabled = true; btnCheck.disabled = true;
+    msg.style.color = ""; msg.textContent = "Downloading & applying update…";
+    try {
+      const r = await fetch("/api/app/update", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: u, password: p }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Update failed");
+      msg.textContent = (d.message || "Updating…") + " Waiting for the server to come back…";
+      // The server exits ~1.5s after responding and Docker restarts it; poll until
+      // it answers again, then reload into the new build.
+      let tries = 0;
+      const poll = async () => {
+        tries++;
+        try {
+          const s = await fetch("/api/app/version", { cache: "no-store" });
+          if (s.ok) { msg.textContent = "✓ Updated. Reloading…"; setTimeout(() => location.reload(), 800); return; }
+        } catch(_) { /* still restarting */ }
+        if (tries > 40) { msg.textContent = "Server is taking longer than expected — reload the page manually in a moment."; return; }
+        setTimeout(poll, 1500);
+      };
+      setTimeout(poll, 3000);
+    } catch(e) {
+      btnDo.disabled = false; btnCheck.disabled = false;
+      msg.style.color = "var(--danger)";
+      msg.textContent = "Update failed: " + e.message;
+    }
+  });
 })();
 
 // Reset the entire GUI to defaults by reloading the page. Used when the context
