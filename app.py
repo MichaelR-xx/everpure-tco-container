@@ -8021,6 +8021,23 @@ def tco_by_group_y1(params,df_parsed, df_azure_disk, df_ec_infra, s3_path, save_
 
                 sku_index = sku_index + 1
 
+    # No group produced a viable Everpure array — almost always because the data's
+    # region(s) aren't in the EC SKU / infra pricing catalog (e.g. Azure Government
+    # regions like usgov*). Fail with an actionable message instead of a cryptic
+    # KeyError('group_id') from the empty results frame downstream.
+    if not array_costs:
+        try:
+            regs = sorted(str(r) for r in pd.Series(df_parsed[region]).dropna().unique())
+        except Exception:
+            regs = []
+        reg_txt = (", ".join(regs)) if regs else "the data's region(s)"
+        raise ValueError(
+            "No Everpure arrays could be sized for this dataset — none of its regions "
+            f"({reg_txt}) are supported by the Dedicated (EC) pricing catalog. "
+            "Azure Government regions (usgov*) aren't in the catalog. "
+            "Try the Azure Native deployment model, which does support this data."
+        )
+
     cost_sheet, df_groups = calc_best_ec_config(array_costs, ec_config, ec_sku_bias, group_list, df_parsed, 1)
     # print(f"cost_sheet: {cost_sheet}")
     # print(f"df_groups shape: {df_groups.shape}")
