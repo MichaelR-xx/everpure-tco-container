@@ -3190,8 +3190,9 @@ def api_login():
         return jsonify({"error": "Username and password are required."}), 400
     if VALID_USERS.get(username) != password:
         return jsonify({"error": "Invalid username or password."}), 401
-    session["logged_in"] = True
-    session["username"]  = username
+    session["logged_in"]  = True
+    session["login_name"] = username     # who logged in (display + theme lock)
+    session["username"]   = DATA_OWNER   # shared data namespace for storage paths
     session["date_time_str"] = datetime.now().strftime("%Y%m%d%H%M%S")
     # Partner logins are locked to their theme; that lock is enforced server-side
     # in _current_theme() so it can't be bypassed by crafted requests.
@@ -3210,7 +3211,7 @@ def api_logout():
 def api_auth_status():
     return jsonify({
         "logged_in":    bool(session.get("logged_in")),
-        "username":     session.get("username", ""),
+        "username":     session.get("login_name", "") or session.get("username", ""),
         "storage_kind": (_load_storage_config() or {}).get("kind", ""),
         "locked_theme": session.get("locked_theme", "") or "",
     })
@@ -8870,6 +8871,11 @@ USER_THEME = {
     "ahead":     "ahead",
     "kyndryl":   "kyndryl",
 }
+# All logins share ONE data namespace (customers/uploads/TCOs live under this
+# username prefix), so a partner login sees the same underlying data — theme
+# scoping decides which customers it can see. Defaults to the historical "admin"
+# data. The login identity is kept separately in session["login_name"].
+DATA_OWNER = os.environ.get("EVERPURE_DATA_OWNER", "admin")
 
 # ── S3 Configuration ──────────────────────────────────────
 try:
