@@ -3217,11 +3217,32 @@ GITHUB_BRANCH = "master"
 # Files that define the running app; used to detect drift vs the latest on GitHub.
 _UPDATE_CORE_FILES = ["app.py", "templates/index.html"]
 # Top-level items copied in on update.
-_UPDATE_ITEMS = ["app.py", "requirements.txt", "templates", "static", "notes", "tools"]
+_UPDATE_ITEMS = ["VERSION", "app.py", "requirements.txt", "templates", "static", "notes", "tools"]
 APP_VERSION_FILE = os.path.join(os.environ.get("EVERPURE_LOCAL_ROOT", "/data"), ".everpure_app_version")
 
 def _app_dir():
     return os.path.dirname(os.path.abspath(__file__))
+
+def _current_version():
+    """Human-readable version code of the running build (from the baked VERSION
+    file, overwritten by an in-app update). Empty string if unavailable."""
+    try:
+        with open(os.path.join(_app_dir(), "VERSION")) as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+def _gh_latest_version():
+    """VERSION file contents on the tracked branch (public repo, no auth)."""
+    raw = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{GITHUB_BRANCH}/VERSION"
+    r = requests.get(raw, timeout=15, headers={"User-Agent": "everpure-tco-updater"})
+    r.raise_for_status()
+    return r.text.strip()
+
+@app.route("/api/app/current", methods=["GET"])
+def app_current_version():
+    """The running version code — no network call, safe to hit on page load."""
+    return jsonify({"ok": True, "version": _current_version() or "unknown"})
 
 def _gh_latest_commit():
     """Latest commit metadata for the tracked branch (public repo, no auth)."""
@@ -3247,18 +3268,20 @@ def app_version_check():
         latest = _gh_latest_commit()
     except Exception as exc:
         return jsonify({"ok": False, "error": f"Could not reach GitHub: {exc}"}), 502
-    # Fast path: a prior in-app update recorded the installed SHA.
-    installed_sha = None
+
+    current_version = _current_version()
+    latest_version  = None
     try:
-        if os.path.exists(APP_VERSION_FILE):
-            installed_sha = open(APP_VERSION_FILE).read().strip()
+        latest_version = _gh_latest_version()
     except Exception:
-        installed_sha = None
+        latest_version = None
+
+    # Primary signal: the VERSION code (bumped each release). Fall back to a
+    # core-file content comparison only when a version code isn't available.
     up_to_date = None
-    if installed_sha:
-        up_to_date = (installed_sha == latest["sha"])
-    if up_to_date is None:
-        # Compare core file contents (local vs raw@branch).
+    if current_version and latest_version:
+        up_to_date = (current_version == latest_version)
+    else:
         try:
             up_to_date = True
             for rel in _UPDATE_CORE_FILES:
@@ -3272,13 +3295,15 @@ def app_version_check():
                     break
         except Exception as exc:
             return jsonify({"ok": False, "error": f"Could not compare versions: {exc}"}), 502
+
     return jsonify({
         "ok": True,
         "up_to_date": up_to_date,
+        "current_version": current_version or "unknown",
+        "latest_version": latest_version or "unknown",
         "latest_sha": latest["sha"][:12],
         "latest_date": latest["date"],
         "latest_message": latest["message"],
-        "installed_sha": (installed_sha[:12] if installed_sha else None),
     })
 
 @app.route("/api/app/update", methods=["POST"])

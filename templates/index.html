@@ -727,7 +727,10 @@ body.theme-kyndryl {
         </div>
 
         <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
-          <label style="font-size:.68rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Software update</label>
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+            <label style="font-size:.68rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Software update</label>
+            <span style="font-size:.72rem;color:var(--muted);">Version <strong id="current-version" style="color:var(--accent);font-family:var(--font-mono);">…</strong></span>
+          </div>
           <p style="font-size:.75rem;color:var(--muted);margin:4px 0 8px;">Check GitHub for a newer version and update the running app in place. Updating requires admin credentials (enter them above) and restarts the server.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
             <button class="btn-sm" id="btn-check-update" type="button">⟳ Check for updates</button>
@@ -2955,21 +2958,36 @@ btnLogin.addEventListener("click", doLogin);
   const btnCheck = document.getElementById("btn-check-update");
   const btnDo    = document.getElementById("btn-do-update");
   const msg      = document.getElementById("update-msg");
+  const verEl    = document.getElementById("current-version");
   if (!btnCheck || !btnDo || !msg) return;
+
+  let targetVersion = "";   // version the update will move to (set on check)
+
+  // Show the running version code immediately (no GitHub call).
+  (async () => {
+    try {
+      const r = await fetch("/api/app/current", { cache: "no-store" });
+      const d = await r.json();
+      if (verEl) verEl.textContent = (d && d.version) ? d.version : "unknown";
+    } catch(_) { if (verEl) verEl.textContent = "unknown"; }
+  })();
 
   btnCheck.addEventListener("click", async () => {
     msg.style.color = ""; msg.textContent = "Checking GitHub…";
-    btnDo.style.display = "none";
+    btnDo.style.display = "none"; targetVersion = "";
     try {
       const r = await fetch("/api/app/version", { cache: "no-store" });
       const d = await r.json();
       if (!r.ok || !d.ok) throw new Error(d.error || "Check failed");
+      if (verEl && d.current_version) verEl.textContent = d.current_version;
       if (d.up_to_date) {
         msg.style.color = "";
-        msg.textContent = `✓ You're on the latest version${d.latest_sha ? " (" + d.latest_sha + ")" : ""}.`;
+        msg.textContent = `✓ You're on the latest version (${d.current_version}).`;
       } else {
+        targetVersion = d.latest_version || d.latest_sha || "latest";
         msg.style.color = "";
-        msg.textContent = `Update available → ${d.latest_sha}${d.latest_message ? " — " + d.latest_message : ""}. Enter admin credentials above, then click “Update now”.`;
+        msg.textContent = `Update available: ${d.current_version} → ${targetVersion}${d.latest_message ? " — " + d.latest_message : ""}. Enter admin credentials above, then click “Update now”.`;
+        btnDo.textContent = `⬆ Update to ${targetVersion}`;
         btnDo.style.display = "";
       }
     } catch(e) {
@@ -2982,7 +3000,7 @@ btnLogin.addEventListener("click", doLogin);
     const u = (document.getElementById("login-user") || {}).value || "";
     const p = (document.getElementById("login-pass") || {}).value || "";
     if (!u || !p) { msg.style.color = "var(--danger)"; msg.textContent = "Enter your admin username and password above to update."; return; }
-    if (!window.confirm("Update the app to the latest version from GitHub?\n\nThe server will restart and you'll be signed out briefly.")) return;
+    if (!window.confirm(`Update the app to version ${targetVersion || "latest"} from GitHub?\n\nThe server will restart and you'll be signed out briefly.`)) return;
     btnDo.disabled = true; btnCheck.disabled = true;
     msg.style.color = ""; msg.textContent = "Downloading & applying update…";
     try {

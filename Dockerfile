@@ -23,6 +23,7 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # App source.
+COPY VERSION .
 COPY app.py .
 COPY templates ./templates
 COPY static ./static
