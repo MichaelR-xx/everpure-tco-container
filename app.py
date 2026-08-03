@@ -3101,6 +3101,24 @@ def results_run_analysis():
         print("Analysis failed:\n" + _tb.format_exc())
         return jsonify({"error": f"Analysis failed: {exc}"}), 500
 
+    # No group was priced — e.g. every disk is in a region the chosen engine's
+    # pricing catalog doesn't cover (Azure Government, etc.). Nothing was saved,
+    # so report it clearly instead of a misleading "Analysis complete."
+    if not (isinstance(rst, dict) and rst.get("group_rows")):
+        try:
+            ridx = int(source_data_config.get("region", -99))
+            cols = list(df_parsed.columns)
+            regcol = cols[ridx] if 0 <= ridx < len(cols) else None
+            regs = sorted(str(r) for r in pd.Series(df_parsed[regcol]).dropna().unique()) if regcol else []
+        except Exception:
+            regs = []
+        reg_txt = (", ".join(regs)) if regs else "the data's region(s)"
+        model = "Azure Native" if str(params.get("method", "")).lower() == "azure_native" else "Dedicated"
+        return jsonify({"error":
+            f"No TCO was generated — none of this dataset's regions ({reg_txt}) are "
+            f"covered by the {model} pricing catalog, so there was no data to analyze. "
+            "Azure Government regions (usgov*) aren't supported."}), 422
+
     # ── Growth projection at generation time ────────────────────────────────
     # Using the growth rate + frequency + years set on the Results window, project
     # cost over time and save it alongside the run so the TCO Review tab can show
