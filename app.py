@@ -2223,6 +2223,13 @@ def tco_save_migration_plan():
         for k in ("everpure_discount", "partner_margin", "azure_native_discount", "min_savings_rate"):
             if k in params:
                 buf.write(f"# {k},{params.get(k)}\n")
+        # Compounding-migration plans carry their growth settings so the plan can be
+        # replayed as a compounding migration when imported into the Graphs view.
+        if params.get("compound"):
+            buf.write("# compound,1\n")
+            for k in ("compound_growth", "compound_growth_term", "compound_migration_cost_per_tib"):
+                if k in params:
+                    buf.write(f"# {k},{params.get(k)}\n")
         buf.write(f"# included_groups,{summary.get('included_groups', 0)}\n")
         buf.write(f"# months_to_migrate,{summary.get('months_to_migrate', 0)}\n")
         buf.write("#\n")
@@ -2325,7 +2332,13 @@ def tco_migration_plan_detail():
         groups.append({"group": gid, "start": start, "done": done,
                        "precedence": prec, "order": order})
     name = key.rsplit("/", 1)[-1]
-    return jsonify({"ok": True, "name": name, "params": params, "groups": groups})
+    compound = {
+        "compound": hdr.get("compound") in ("1", "true", "True"),
+        "compound_growth": _flt(hdr.get("compound_growth")),
+        "compound_growth_term": hdr.get("compound_growth_term", "month"),
+        "compound_migration_cost_per_tib": _flt(hdr.get("compound_migration_cost_per_tib")),
+    }
+    return jsonify({"ok": True, "name": name, "params": params, "groups": groups, **compound})
 
 @app.route("/api/tco/project", methods=["POST"])
 @login_required

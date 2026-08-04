@@ -6674,9 +6674,19 @@ function resetGuiToDefaults(delayMs) {
     const btn = $("btn-tco-mig-save");
     btn.disabled = true; const old = btn.textContent; btn.textContent = "Saving…";
     try {
+      const mparams = migrationParams();
+      // For compounding runs, tag the saved plan as a compounding plan + carry its
+      // growth settings so it replays as a compounding migration when imported.
+      const rp = (selectedRun && selectedRun.params) || {};
+      if (rp.compounding_growth) {
+        mparams.compound = true;
+        mparams.compound_growth = rp.compounding_growth_amount || 0;
+        mparams.compound_growth_term = rp.growth_term || "month";
+        mparams.compound_migration_cost_per_tib = rp.migration_cost_per_tib || 260;
+      }
       const res  = await fetch("/api/tco/save-migration-plan", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ group_summary_key: selectedKey, name, params: migrationParams() }),
+        body: JSON.stringify({ group_summary_key: selectedKey, name, params: mparams }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Save failed.");
@@ -8226,6 +8236,15 @@ function resetGuiToDefaults(delayMs) {
       const opt = $("tco-proj-migplan").selectedOptions[0];
       projMigPlanName = opt ? opt.textContent : projMigPlanName;
       applyPlanToControls(data);   // set commercials + alignment + capacity to the plan's
+      if (data.compound) {
+        // Compounding plan: replay it as a compounding migration (the plan's terms
+        // are now applied to the controls, so computeCompound reproduces it).
+        projCompound = true; projMigPlan = null;
+        await computeCompound();
+        updateProjection();
+        $("tco-proj-migplan-note").textContent = `Showing compounding migration “${escHtml(projMigPlanName)}” — Everpure starts when each group begins migrating; Azure drops the period after it finishes.`;
+        return;
+      }
       $("tco-proj-migplan-note").textContent = `Applied the plan's commercials & group alignment. Groups grow only after they finish migrating (${Object.keys(map).length} group(s) in plan).`;
     } catch(e) {
       projMigPlan = null; projMigPlanName = "";
@@ -8245,6 +8264,7 @@ function resetGuiToDefaults(delayMs) {
     if (!selectedKey) return;
     projData = null;
     projMigPlan = null; projMigPlanName = "";
+    projCompound = false;   // default the graph to NO migration until the user picks a plan
     const sel = $("tco-proj-migplan");
     if (sel) sel.value = "";
     loadProjMigPlanOptions();
