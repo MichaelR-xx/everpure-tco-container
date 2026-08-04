@@ -7056,12 +7056,15 @@ function resetGuiToDefaults(delayMs) {
       + (hasPeer ? ` · incl. VNet peering ${fmtUsd(peerMo)}/mo` : "")
       + (projMigPlanName ? ` · migration plan applied: ${projMigPlanName} (steady-state monthly figures; see Growth Projection for the phased trajectory)` : "");
     $("tco-included-note").textContent = note;
-    // Yearly value with the monthly figure in parentheses.
-    const yv = v => `${fmtUsd(v * months)} <span style="font-weight:400;color:var(--muted);font-size:.72em;">(${fmtUsd(v)}/mo)</span>`;
     const gib = v => `${Math.round(v || 0).toLocaleString()} <span style="font-weight:400;color:var(--muted);font-size:.72em;">GiB</span>`;
     const dispSav  = hasPeer ? savingNet : tot.savings;
     const dispRate = hasPeer ? rateNet   : tot.rate;
-    const kpis =
+    const years = (selectedRun && selectedRun.params && parseInt(selectedRun.params.num_of_years, 10)) || 5;
+    // Overall view: annual figure with the monthly in parentheses.
+    // Graphs view: the full N-year total with Year 1 in parentheses.
+    const yvMo   = v => `${fmtUsd(v * months)} <span style="font-weight:400;color:var(--muted);font-size:.72em;">(${fmtUsd(v)}/mo)</span>`;
+    const yvYear = v => `${fmtUsd(v * months * years)} <span style="font-weight:400;color:var(--muted);font-size:.72em;">(${fmtUsd(v * months)} Y1)</span>`;
+    const buildKpis = (yv) =>
       kpi("Azure Native", yv(tot.azure)) +
       kpi("Everpure Total", yv(tot.everpure), "var(--accent)") +
       kpi("· Licensing", yv(tot.license)) +
@@ -7077,10 +7080,12 @@ function resetGuiToDefaults(delayMs) {
       kpi("Total Licensed Cap", gib(tot.capLic)) +
       kpi("Groups Included", Math.round(nIncl || 0).toLocaleString()) +
       kpi("Arrays", Math.round(tot.arraysIncluded || 0).toLocaleString(), "var(--accent)");
-    $("tco-overall-kpis").innerHTML = kpis;
-    // Mirror the summary at the top of the Graphs view (also captured in the PDF).
-    const gk = $("tco-graphs-kpis"); if (gk) gk.innerHTML = kpis;
-    const gn = $("tco-graphs-included-note"); if (gn) gn.textContent = note;
+    $("tco-overall-kpis").innerHTML = buildKpis(yvMo);
+    // Mirror the summary at the top of the Graphs view (also captured in the PDF),
+    // but as N-year totals with Year 1 in parentheses.
+    const gk = $("tco-graphs-kpis"); if (gk) gk.innerHTML = buildKpis(yvYear);
+    const gn = $("tco-graphs-included-note");
+    if (gn) gn.textContent = note + ` · costs are ${years}-year totals (Year 1 in parentheses)`;
   }
 
   function renderData(computed, tot, months) {
