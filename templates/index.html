@@ -966,7 +966,7 @@ body.theme-kyndryl {
   <div class="tab-pane" id="pane-builder">
     <div class="inner-page">
       <div class="page-heading">
-        <h2>🧱 Workload Builder</h2>
+        <h2>🧱 Workload Builder  <button class="help-btn" data-help="workload" title="How to use this section">❓ Help</button></h2>
         <p>Assemble a synthetic workload from reusable models — by instance count or by target capacity — then save it against a customer. Saving parses the dataset and makes it available for Run Analysis.</p>
       </div>
 
@@ -2266,18 +2266,20 @@ body.theme-kyndryl {
       <h3>4 · Results — run the analysis</h3>
       <ol>
         <li>Pick a parsed dataset from the list.</li>
-        <li>Set <strong>Analysis Parameters</strong>: deployment model (<strong>Dedicated</strong> or <strong>Azure Native</strong>), growth, data-reduction ratio, snapshot rate, efficiency, SKU, years, and projection cycle.</li>
+        <li>Set <strong>Analysis Parameters</strong>: deployment model (<strong>Dedicated</strong> or <strong>Azure Native</strong>), <strong>Growth (yearly)</strong>, data-reduction ratio, snapshot rate, efficiency, SKU, years, and projection cycle.</li>
+        <li><em>Optional</em> — sweep a <strong>range of efficiency settings</strong> in one shot to generate several runs at once.</li>
         <li><em>Optional</em> — use the <strong>🔎 Search data / Use-case filter</strong> to keep or exclude rows matching terms (e.g. <code>sql</code>, <code>db</code>). <strong>Preview</strong> the split, <strong>Apply to summary</strong> to re-scope the metrics, or <strong>Save filtered dataset</strong> as a new dataset.</li>
         <li>Click <strong>Run Analysis</strong> — this generates a TCO you'll review on the next tab.</li>
       </ol>
+      <div class="hnote">Growth is modeled as <strong>yearly compounding growth</strong>. The single Growth (yearly) dropdown drives both the growth projection and the compounding migration model available in TCO Review.</div>
       <h3>5 · TCO Review — compare &amp; explore</h3>
       <ul>
         <li>Browse generated TCOs (color-coded by deployment model; filtered runs show a 🔎 badge).</li>
-        <li>Apply <strong>commercial adjustments</strong> (min savings, Everpure discount, partner margin, Azure discount, region filter).</li>
-        <li>Switch views: <strong>Data</strong> (per-group table), <strong>Graphs</strong> (cost + growth projection, optionally folding in a migration plan), <strong>Migration</strong> (build/save a phased migration schedule), <strong>Advanced</strong> (raw group data), <strong>Downloads</strong> (saved PDFs).</li>
+        <li>Apply <strong>commercial adjustments</strong> (min savings, Everpure discount, partner margin ≤ Everpure discount, Azure discount, region filter).</li>
+        <li>Switch views: <strong>Data</strong> (per-group table + Year-1 summary), <strong>Graphs</strong> (cost + growth projection, optionally folding in a migration plan; CSV export of the cost-by-period table), <strong>Migration</strong> (build/save a phased, compounding migration schedule), <strong>Ramp</strong> (phased cost/savings over the growth projection), <strong>Consolidation</strong> (re-home negative-savings groups), <strong>Advanced</strong> (raw group data), <strong>Downloads</strong> (saved PDFs).</li>
         <li>Set a run as <strong>primary</strong> and have others follow it, or <strong>compare</strong> multiple runs side by side.</li>
       </ul>
-      <div class="hnote">Tip: each section has its own <strong>❓ Help</strong> button in the heading for details specific to that page.</div>` },
+      <div class="hnote">Tip: each section has its own <strong>❓ Help</strong> button in the heading for details specific to that page — including <strong>🧱 Workload Builder</strong>, an alternative to uploading a CSV where you assemble a synthetic workload from reusable models.</div>` },
 
     login: { title: "❓ Login &amp; Storage Location", html: `
       <p>Enter your username and password, then choose a <strong>storage location</strong> — this is where the tool reads and writes all data. It must be set before you can sign in.</p>
@@ -2319,7 +2321,9 @@ body.theme-kyndryl {
       <h3>Analysis Parameters</h3>
       <ul>
         <li><strong>Deployment model</strong> — <strong>Dedicated</strong> (EC array sizing) or <strong>Azure Native</strong> (capacity + throughput model).</li>
-        <li><strong>Growth</strong>, <strong>Data Reduction Ratio</strong>, <strong>Monthly Snapshot Rate</strong>, <strong>Initial Max Size</strong>, <strong>Usage Efficiency</strong>, default <strong>SKU</strong>, <strong>Years</strong>, and <strong>Projection Cycle</strong>. Advanced settings expose pricing term, per-tier limits, and more.</li>
+        <li><strong>Growth (yearly)</strong> — a percentage (0–50% in 5% steps). This is modeled as <strong>yearly compounding growth</strong> and drives both the Graphs growth projection and the compounding migration model in TCO Review. (The migration schedule, pace, and per-TiB migration cost are set later in the Migration view.)</li>
+        <li><strong>Data Reduction Ratio</strong>, <strong>Monthly Snapshot Rate</strong>, <strong>Initial Max Size</strong>, <strong>Usage Efficiency</strong>, default <strong>SKU</strong>, <strong>Years</strong>, and <strong>Projection Cycle</strong>. Advanced settings expose pricing term, per-tier limits, and more.</li>
+        <li><strong>Efficiency sweep</strong> <span style="font-weight:400;color:var(--muted);">(optional)</span> — set a start/end/step to generate a batch of runs across a range of usage-efficiency settings in one click.</li>
       </ul>
       <h3>🔎 Search data / Use-case filter <span style="font-weight:400;color:var(--muted);">(optional)</span></h3>
       <ul>
@@ -2331,18 +2335,62 @@ body.theme-kyndryl {
       <p>Generates a TCO from the selected dataset + parameters (and records any filter). Review it on the <strong>TCO Review</strong> tab.</p>` },
 
     tco: { title: "❓ TCO Review — compare &amp; explore results", html: `
-      <p>Browse generated TCOs and drill into cost, growth, and migration. Runs are color-coded by deployment model; runs built from a filtered dataset show a 🔎 badge.</p>
+      <p>Browse generated TCOs and drill into cost, growth, migration, and consolidation. Runs are color-coded by deployment model; runs built from a filtered dataset show a 🔎 badge.</p>
       <h3>Commercial adjustments</h3>
-      <p>Tune <strong>minimum savings rate</strong>, <strong>Everpure discount</strong>, <strong>partner margin</strong>, and <strong>Azure discount</strong>, and filter by <strong>region</strong> or include all groups. Every view updates live.</p>
+      <p>Tune <strong>minimum savings rate</strong>, <strong>Everpure discount</strong>, <strong>partner margin</strong> (capped at the Everpure discount), and <strong>Azure discount</strong>, and filter by <strong>region</strong> or include all groups. Every view updates live.</p>
       <h3>Views</h3>
       <ul>
-        <li><strong>Data</strong> — per-group table (VMs, volumes, arrays, capacity, licensed cap, cost, blended $/GiB).</li>
-        <li><strong>Graphs</strong> — cost comparison + a <strong>growth projection</strong> over time. Optionally <strong>include a migration plan</strong> so Everpure ramps with migration while unmigrated capacity stays on Azure.</li>
-        <li><strong>Migration</strong> — set capacity migrated per month (TiB) and per-group precedence/order, then <strong>save named migration plans</strong>.</li>
-        <li><strong>Advanced</strong> — the raw per-group sizing data; <strong>Downloads</strong> — saved PDF reports.</li>
+        <li><strong>Data</strong> — per-group table (VMs, volumes, arrays, capacity, licensed cap, cost, blended $/GiB) plus the <strong>Overall Results for Year 1</strong> summary (annual figures, monthly in parentheses).</li>
+        <li><strong>Graphs</strong> — cost comparison charts + a <strong>growth projection</strong> over time, and an <strong>N-Year TCO Summary</strong> (full-term totals with Year 1 in parentheses). See Graphs &amp; migration below.</li>
+        <li><strong>Migration</strong> — build/save a phased, compounding migration schedule. See Migration below.</li>
+        <li><strong>Ramp</strong> — the phased migration cost/savings over the growth projection: Everpure ramps in with each group's migration timing, a one-time migration cost is applied, and cumulative savings vs. staying on Azure are tracked.</li>
+        <li><strong>Consolidation</strong> — re-home negative-savings groups into positive ones. See Consolidation below.</li>
+        <li><strong>Advanced</strong> — the raw per-group sizing data (downloadable as CSV); <strong>Downloads</strong> — saved PDF reports.</li>
       </ul>
+      <h3>Graphs &amp; migration</h3>
+      <ul>
+        <li>The <strong>Growth Projection</strong> compounds capacity at the run's yearly growth rate. By default it shows growth with <strong>no migration</strong>.</li>
+        <li>Use <strong>Include migration plan</strong> to fold in a saved plan or the <strong>compounding migration</strong> for this run. Everpure ramps in as each group migrates; unmigrated capacity stays on Azure; a one-time migration cost is applied when each group migrates.</li>
+        <li>When a migration plan is added, the N-Year TCO Summary also shows the one-time <strong>Migration Cost</strong> and Everpure/Savings totals that include it. With no plan added, no migration costs are shown.</li>
+        <li><strong>⬇ CSV (cost by period)</strong> exports just the per-period cost table as raw numbers for a spreadsheet.</li>
+        <li>Graph views can be downloaded as <strong>PDF</strong>.</li>
+      </ul>
+      <h3>Migration (compounding)</h3>
+      <ol>
+        <li>Set <strong>Months to complete</strong> or <strong>Capacity / month (TiB)</strong> (the two are linked) to pace the migration, and set per-group <strong>precedence</strong> (early/middle/late) and explicit <strong>order</strong> to control sequence.</li>
+        <li>Click <strong>▶ Evaluate</strong> to run the compounding migration: capacity grows each period, each group flips from Azure to Everpure when it migrates, and a one-time migration cost (capacity × $/TiB) is applied. Everpure cost starts the month each group <em>begins</em> migrating.</li>
+        <li><strong>Save</strong> named plans to reuse them; saved plans (and the compounding run itself) are selectable in the Graphs view's <em>Include migration plan</em> dropdown.</li>
+      </ol>
+      <h3>Consolidation</h3>
+      <ol>
+        <li>Re-homes every <strong>negative-savings</strong> group into a <strong>positive-savings</strong> group in the <em>same region</em> (balanced by EC licensed capacity), builds a new <em>consolidated</em> parsed dataset, and re-runs the TCO.</li>
+        <li>It prices the intra-region <strong>VNet peering</strong> the moves require — set <strong>Peered traffic per licensed TiB (GiB/mo)</strong> to control that cost (it updates live). The peering cost is folded into the Everpure total and savings.</li>
+        <li>Optionally <strong>exclude negative groups</strong> from consolidation instead of re-homing them. Consolidated datasets are hidden on the Results tab unless you tick <em>Show consolidation datasets</em>.</li>
+      </ol>
       <h3>Primary / follower &amp; compare</h3>
-      <p>Mark one run as <strong>primary</strong> so others inherit its included-group set, or select multiple runs and <strong>compare</strong> them side by side. Graph views can be downloaded as PDF.</p>` },
+      <p>Mark one run as <strong>primary</strong> so others inherit its included-group set, or select multiple runs and <strong>compare</strong> them side by side.</p>` },
+
+    workload: { title: "❓ Workload Builder — assemble a synthetic workload", html: `
+      <p>Build a workload from reusable <strong>models</strong> instead of uploading a CSV. Saving the workload parses it into a dataset that appears on the <strong>Results</strong> tab for Run Analysis, just like an uploaded inventory.</p>
+      <h3>Size by capacity <span style="font-weight:400;color:var(--muted);">(session-wide)</span></h3>
+      <ul>
+        <li><strong>Original capacity</strong> — capacity inputs mean the raw provisioned disk capacity.</li>
+        <li><strong>Licensed capacity (Everpure)</strong> — inputs mean Everpure licensed capacity; original is derived as <code>licensed ÷ efficiency</code> using the <strong>Efficiency rate (%)</strong> you set (default 65%).</li>
+      </ul>
+      <h3>Simple sizing</h3>
+      <ol>
+        <li>Enter a <strong>Total capacity (TiB)</strong>, a <strong>Disk type</strong>, and a <strong>Number of volumes</strong>.</li>
+        <li>Per-volume size = capacity ÷ volumes, rounded up to the nearest <strong>valid Azure disk size</strong> for that type (max 32&nbsp;TiB for tiered types, 64&nbsp;TiB for PremiumV2/Ultra). Sizes above the maximum are refused.</li>
+        <li><strong>＋ Add to workload</strong> adds the volumes using the placement selected below.</li>
+      </ol>
+      <h3>Models &amp; placement</h3>
+      <ul>
+        <li><strong>Start from a saved workload</strong> to load a reusable set of models, or build models in the <strong>Model library</strong> (VM type, drives; performance &amp; est. cost are informational).</li>
+        <li><strong>Placement</strong> (region / availability zone / VNet) is applied to each model as you add it — change it between adds to spread capacity across zones and VNets.</li>
+        <li><strong>Your workload</strong> lists everything added; adjust counts or remove entries.</li>
+      </ul>
+      <h3>Save</h3>
+      <p><strong>Save workload</strong> against the active customer. This parses the workload into a dataset (reusable across customers) and makes it selectable on the Results tab.</p>` },
   };
 
   function openHelp(key) {
