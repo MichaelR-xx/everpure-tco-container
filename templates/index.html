@@ -979,9 +979,6 @@ body.theme-kyndryl {
               <option value="licensed">Licensed capacity (Everpure)</option>
             </select>
           </label>
-          <label id="wl-drr-wrap" style="display:none;">DRR (data reduction, x:1)
-            <input id="wl-drr" type="number" min="1" step="0.1" value="4">
-          </label>
           <label id="wl-eff-wrap" style="display:none;">Efficiency rate (%)
             <input id="wl-eff" type="number" min="1" max="100" step="1" value="65">
           </label>
@@ -992,7 +989,7 @@ body.theme-kyndryl {
       <div class="card" id="wl-simple-card">
         <h3 style="margin-top:0;">Simple sizing <span class="muted" style="font-weight:400;font-size:.8rem;">— size a set of identical volumes, snapped to valid Azure disk sizes, then add them</span></h3>
         <div class="wl-form-row" style="align-items:flex-end;">
-          <label>Capacity (TiB)<input id="wl-simple-cap" type="number" min="0" step="0.1" value="10"></label>
+          <label>Total capacity (TiB)<input id="wl-simple-cap" type="number" min="0" step="0.1" value="10"></label>
           <label>Disk type
             <select id="wl-simple-type">
               <option value="Premium_LRS">Premium_LRS (v1)</option>
@@ -2819,42 +2816,38 @@ Cap ${Number(m.capacity_gib).toLocaleString()} GiB (${m.capacity_tib} TiB)</div>
   /* ── Global "size by capacity" mode (Original vs Licensed) ──────────────
      Applies to every capacity input on this page for the session; persisted to
      localStorage. Licensed → original = licensed × DRR ÷ efficiency. */
-  let wlSizeMode = "original", wlDrr = 4, wlEff = 65;
+  let wlSizeMode = "original", wlEff = 65;
   try {
     const sm = localStorage.getItem("wlSizeMode"); if (sm === "licensed" || sm === "original") wlSizeMode = sm;
-    const d = parseFloat(localStorage.getItem("wlDrr")); if (d > 0) wlDrr = d;
     const e = parseFloat(localStorage.getItem("wlEff")); if (e > 0) wlEff = e;
   } catch(e) {}
 
+  // Licensed → original provisioned capacity: original = licensed ÷ efficiency.
   function wlToOriginalGiB(gib) {
     if (wlSizeMode === "licensed") {
       const eff = (wlEff > 0 ? wlEff : 65) / 100;
-      const drr = (wlDrr > 0 ? wlDrr : 4);
-      return gib * drr / eff;
+      return gib / eff;
     }
     return gib;
   }
   function wlPersistSizeMode() {
-    try { localStorage.setItem("wlSizeMode", wlSizeMode); localStorage.setItem("wlDrr", String(wlDrr)); localStorage.setItem("wlEff", String(wlEff)); } catch(e) {}
+    try { localStorage.setItem("wlSizeMode", wlSizeMode); localStorage.setItem("wlEff", String(wlEff)); } catch(e) {}
   }
   function wlSyncSizeModeUI() {
     const lic = wlSizeMode === "licensed";
     if ($b("wl-size-mode")) $b("wl-size-mode").value = wlSizeMode;
-    if ($b("wl-drr-wrap")) $b("wl-drr-wrap").style.display = lic ? "" : "none";
     if ($b("wl-eff-wrap")) $b("wl-eff-wrap").style.display = lic ? "" : "none";
-    if ($b("wl-drr")) $b("wl-drr").value = wlDrr;
     if ($b("wl-eff")) $b("wl-eff").value = wlEff;
     const note = $b("wl-size-mode-note");
     if (note) note.innerHTML = lic
-      ? "Capacity you enter is <strong>Everpure licensed</strong> capacity; original provisioned size = licensed × DRR ÷ efficiency "
-        + "(e.g. 10 TiB × " + wlDrr + " ÷ " + (wlEff/100).toFixed(2) + " = " + (10*wlDrr/((wlEff>0?wlEff:65)/100)).toFixed(1) + " TiB original)."
+      ? "Capacity you enter is <strong>Everpure licensed</strong> capacity; original provisioned size = licensed ÷ efficiency "
+        + "(e.g. 10 TiB ÷ " + (wlEff/100).toFixed(2) + " = " + (10/((wlEff>0?wlEff:65)/100)).toFixed(1) + " TiB original)."
       : "Capacity you enter is the <strong>original provisioned</strong> disk capacity (current behavior).";
   }
   (function(){
     const ms = $b("wl-size-mode");
     if (ms) ms.addEventListener("change", () => { wlSizeMode = ms.value; wlSyncSizeModeUI(); wlPersistSizeMode(); wlRenderCart(); wlSimpleCompute(); });
-    const dr = $b("wl-drr"), ef = $b("wl-eff");
-    if (dr) dr.addEventListener("input", () => { wlDrr = parseFloat(dr.value) || 4; wlPersistSizeMode(); wlSyncSizeModeUI(); wlRenderCart(); wlSimpleCompute(); });
+    const ef = $b("wl-eff");
     if (ef) ef.addEventListener("input", () => { wlEff = parseFloat(ef.value) || 65; wlPersistSizeMode(); wlSyncSizeModeUI(); wlRenderCart(); wlSimpleCompute(); });
   })();
 
