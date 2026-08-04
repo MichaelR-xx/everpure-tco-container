@@ -1944,7 +1944,7 @@ body.theme-kyndryl {
 
             <!-- Overall summary -->
             <div class="card" style="padding:16px 20px;">
-              <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:12px;">Overall Results <span id="tco-included-note" style="text-transform:none;letter-spacing:0;font-weight:400;"></span></div>
+              <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:12px;">Overall Results for Year 1 <span id="tco-included-note" style="text-transform:none;letter-spacing:0;font-weight:400;"></span></div>
               <div id="tco-overall-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;"></div>
             </div>
 
@@ -7019,7 +7019,7 @@ function resetGuiToDefaults(delayMs) {
     const everPeer  = tot.everpure + peerMo;             // Everpure incl. peering
     const savingNet = tot.azure - everPeer;              // savings net of peering
     const rateNet   = tot.azure ? savingNet / tot.azure : 0;
-    const note = `· ${nIncl} of ${nTotal} groups included · ${months} month${months === 1 ? "" : "s"}`
+    const note = `· ${nIncl} of ${nTotal} groups included`
       + (hasPeer ? ` · incl. VNet peering ${fmtUsd(peerMo)}/mo` : "")
       + (projMigPlanName ? ` · migration plan applied: ${projMigPlanName} (steady-state monthly figures; see Growth Projection for the phased trajectory)` : "");
     $("tco-included-note").textContent = note;
