@@ -2411,6 +2411,138 @@ def tco_projection_load():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
+@app.route("/api/tco/compounding-migration", methods=["POST"])
+@login_required
+def tco_compounding_migration():
+    """Compounding-growth migration model. Walks the horizon period-by-period
+    (month or quarter) applying an EFFECTIVE periodic growth rate
+    (periodic = (1+yearly)^(1/ppy) − 1) that compounds capacity every period.
+    Each included group migrates in an assigned period; while unmigrated it grows
+    on Azure MD, on migration its (grown) cost switches to Everpure, and its Azure
+    MD is dropped the period AFTER its migration period. A one-time migration cost
+    = migrated capacity (TiB) × $/TiB hits in the migration period. Costs scale
+    linearly with the compounded capacity factor (matching the worked example),
+    so no per-period engine re-sizing is needed. Results are stored as a labeled
+    'migrated' dataset. Output: per-group and total, monthly and cumulative,
+    cost and capacity."""
+    global s3_bucket
+    body = request.get_json(force=True) or {}
+    key  = str(body.get("group_summary_key", "")).strip()
+    if not key.endswith("group_summary.csv") or "/tco/" not in key:
+        return jsonify({"error": "A valid group_summary_key is required."}), 400
+    def _f(v, d=0.0):
+        try: return float(v)
+        except (TypeError, ValueError): return d
+    yearly       = max(0.0, min(0.5, _f(body.get("growth"), 0.20)))
+    term         = "quarter" if str(body.get("growth_term", "month")).lower().startswith("q") else "month"
+    ppy          = 4 if term == "quarter" else 12
+    years        = int(_f(body.get("years"), 5) or 5)
+    horizon      = max(1, years * ppy)
+    periodic     = (1.0 + yearly) ** (1.0 / ppy) - 1.0
+    cost_per_tib = _f(body.get("migration_cost_per_tib"), 260.0)
+    eDisc  = _f(body.get("everpure_discount")); margin = _f(body.get("partner_margin"))
+    aDisc  = _f(body.get("azure_discount"));    minSav = _f(body.get("min_savings"))
+    mig_unit  = "capacity" if str(body.get("migration_unit", "time")).lower().startswith("c") else "time"
+    mig_value = _f(body.get("migration_value"), 0.0)
+
+    df = _load_df_from_s3(key)
+    if df is None:
+        return jsonify({"error": "group_summary.csv not found for this run."}), 404
+    df.columns = [c.replace("pscd", "ec") if isinstance(c, str) else c for c in df.columns]
+    def col(n): return pd.to_numeric(df[n], errors="coerce").fillna(0) if n in df.columns else pd.Series([0]*len(df))
+    desc   = df["desc"].astype(str) if "desc" in df.columns else pd.Series([str(i) for i in range(len(df))])
+    region = df["Region"].astype(str) if "Region" in df.columns else pd.Series([""]*len(df))
+    origcap = col("Original Capacity"); azure0 = col("Y1 Azure Native $")
+    lic0    = col("Y1 PSC Lic $");      infra0 = col("Y1 PSC Res $")
+
+    groups = []
+    for i in range(len(df)):
+        adj_ev = float(lic0.iloc[i]) * (1 - eDisc) * (1 + margin) + float(infra0.iloc[i])
+        adj_az = float(azure0.iloc[i]) * (1 - aDisc)
+        rate   = ((adj_az - adj_ev) / adj_az) if adj_az else (-1.0 if (adj_az - adj_ev) < 0 else 0.0)
+        groups.append({"group": desc.iloc[i], "region": region.iloc[i], "cap_gib": float(origcap.iloc[i]),
+                       "azure": adj_az, "everpure": adj_ev, "rate": rate, "included": rate >= minSav})
+
+    # Migration schedule: only positive-savings (included) groups migrate; excluded
+    # groups stay on Azure forever (and keep growing). Order best-savings first.
+    order = sorted([g for g in groups if g["included"]], key=lambda g: -g["rate"])
+    if mig_unit == "capacity":
+        budget = mig_value * 1024.0   # GiB per period
+        per, used = 1, 0.0
+        for g in order:
+            if budget > 0 and used > 0 and used + g["cap_gib"] > budget:
+                per += 1; used = 0.0
+            g["mig_period"] = min(per, horizon); used += g["cap_gib"]
+    else:
+        P = int(mig_value) if mig_value >= 1 else len(order)
+        P = max(1, min(P, horizon))
+        load = [0.0] * P
+        for g in sorted(order, key=lambda x: -x["cap_gib"]):
+            j = min(range(P), key=lambda k: load[k]); load[j] += g["cap_gib"]; g["mig_period"] = j + 1
+    for g in groups:
+        g.setdefault("mig_period", None)   # excluded groups never migrate
+
+    # Walk the horizon. Growth factor at period t (1-based): (1+periodic)^(t-1).
+    for g in groups:
+        g["_cum"] = 0.0
+        g["_series"] = []
+    total_series = []
+    cum_total = cum_sav = cum_mig = 0.0
+    for t in range(1, horizon + 1):
+        f = (1.0 + periodic) ** (t - 1)
+        p_az = p_ev = p_mig = p_cap = p_capmig = base_az = 0.0
+        for g in groups:
+            cap_t = g["cap_gib"] * f
+            mp = g["mig_period"]
+            az = g["azure"] * f if (mp is None or t <= mp) else 0.0
+            ev = g["everpure"] * f if (mp is not None and t >= mp) else 0.0
+            mig = (cap_t / 1024.0) * cost_per_tib if (mp is not None and t == mp) else 0.0
+            tot = az + ev + mig
+            g["_cum"] += tot
+            g["_series"].append({"period": t, "cap_tib": round(cap_t/1024.0, 3),
+                                 "azure": round(az, 2), "everpure": round(ev, 2),
+                                 "migration": round(mig, 2), "total": round(tot, 2),
+                                 "cum_total": round(g["_cum"], 2)})
+            p_az += az; p_ev += ev; p_mig += mig; p_cap += cap_t; base_az += g["azure"] * f
+            if mp is not None and t == mp: p_capmig += cap_t
+        p_tot = p_az + p_ev + p_mig
+        sav = base_az - p_tot           # vs. staying entirely on Azure (grown)
+        cum_total += p_tot; cum_sav += sav; cum_mig += p_mig
+        total_series.append({
+            "period": t, "azure": round(p_az, 2), "everpure": round(p_ev, 2),
+            "migration": round(p_mig, 2), "total": round(p_tot, 2),
+            "baseline_azure": round(base_az, 2), "savings": round(sav, 2),
+            "cap_tib": round(p_cap/1024.0, 2), "cap_migrated_tib": round(p_capmig/1024.0, 3),
+            "cum_total": round(cum_total, 2), "cum_savings": round(cum_sav, 2),
+            "cum_migration": round(cum_mig, 2),
+        })
+
+    result = {
+        "ok": True,
+        "params": {"growth": yearly, "growth_term": term, "periods_per_year": ppy,
+                   "periodic_rate": round(periodic, 6), "years": years, "horizon": horizon,
+                   "migration_unit": mig_unit, "migration_value": mig_value,
+                   "migration_cost_per_tib": cost_per_tib,
+                   "everpure_discount": eDisc, "partner_margin": margin,
+                   "azure_discount": aDisc, "min_savings": minSav},
+        "groups": [{"group": g["group"], "region": g["region"], "cap_gib": round(g["cap_gib"], 2),
+                    "mig_period": g["mig_period"], "included": g["included"],
+                    "cum_total": round(g["_cum"], 2), "series": g["_series"]} for g in groups],
+        "total_series": total_series,
+    }
+    # Persist as a labeled "migrated" dataset next to the run.
+    try:
+        stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        out_key = f"{key.split('/tco/')[0]}/migrated/compound_{stamp}/migrated.json"
+        _s3_client().put_object(Bucket=s3_bucket, Key=out_key,
+                                Body=json.dumps(result).encode("utf-8"),
+                                ContentType="application/json")
+        result["saved_key"] = out_key
+        result["label"] = f"migrated (compounding {int(round(yearly*100))}%/yr, {term})"
+    except Exception as exc:
+        result["save_error"] = str(exc)
+    return jsonify(result)
+
 # ══════════════════════════════════════════════════════════
 #  Results / Parsed Data API
 # ══════════════════════════════════════════════════════════

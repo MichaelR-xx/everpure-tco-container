@@ -1377,6 +1377,39 @@ body.theme-kyndryl {
 
           </div><!-- end discrete row -->
 
+          <!-- ── Compounding growth migration (opt-in) ───────── -->
+          <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px;">
+            <label style="display:flex;align-items:center;gap:8px;font-size:.8rem;font-weight:700;color:var(--text);cursor:pointer;">
+              <input type="checkbox" id="param-compounding" style="accent-color:var(--accent);width:16px;height:16px;cursor:pointer;" />
+              Compounding growth migration
+              <span style="font-weight:400;font-size:.68rem;color:var(--muted);">— the TCO Review Migration view will model migration with compounding growth</span>
+            </label>
+            <div id="compounding-opts" style="display:none;flex-wrap:wrap;gap:20px;align-items:flex-end;margin-top:12px;">
+              <div style="display:flex;flex-direction:column;gap:7px;min-width:130px;">
+                <label style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Growth amount (yearly)</label>
+                <select id="param-comp-growth" style="padding:9px 28px 9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.82rem;font-family:var(--font-mono);cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 12 12%22><path fill=%22%238a8070%22 d=%22M6 8L1 3h10z%22/></svg>');background-repeat:no-repeat;background-position:right 9px center;"></select>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:7px;min-width:120px;">
+                <label style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Growth term</label>
+                <select id="param-comp-term" style="padding:9px 28px 9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.82rem;font-family:var(--font-ui);cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 12 12%22><path fill=%22%238a8070%22 d=%22M6 8L1 3h10z%22/></svg>');background-repeat:no-repeat;background-position:right 9px center;">
+                  <option value="month" selected>Month</option>
+                  <option value="quarter">Quarter</option>
+                </select>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:7px;min-width:120px;">
+                <label style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Migration unit</label>
+                <select id="param-comp-unit" style="padding:9px 28px 9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.82rem;font-family:var(--font-ui);cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 12 12%22><path fill=%22%238a8070%22 d=%22M6 8L1 3h10z%22/></svg>');background-repeat:no-repeat;background-position:right 9px center;">
+                  <option value="time" selected>Time</option>
+                  <option value="capacity">Capacity</option>
+                </select>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:7px;min-width:150px;">
+                <label style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Migration cost / TiB ($)</label>
+                <input type="number" id="param-comp-cost" value="260" min="0" step="1" style="padding:9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.82rem;font-family:var(--font-mono);box-sizing:border-box;" />
+              </div>
+            </div>
+          </div>
+
           <!-- ── Advanced Configuration (collapsible) ───────── -->
           <div id="adv-config-wrapper" style="border-top:1px solid var(--border);padding-top:14px;">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;user-select:none;" id="adv-config-toggle">
@@ -2078,6 +2111,20 @@ body.theme-kyndryl {
 
             <!-- ── MIGRATION VIEW: capacity-metered migration schedule ─── -->
             <div id="tco-view-migration" style="display:none;flex-direction:column;gap:20px;">
+              <!-- Compounding growth migration (shown only for runs generated with it enabled) -->
+              <div class="card" id="tco-compound-card" style="padding:16px 20px;display:none;border:1px solid var(--accent);">
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
+                  <span style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--accent);">Compounding Growth Migration</span>
+                  <span id="tco-compound-params" style="font-size:.66rem;color:var(--muted);"></span>
+                  <span style="flex:1;"></span>
+                  <button class="btn-sm save" id="btn-tco-compound-run" style="padding:8px 16px;white-space:nowrap;">▶ Run compounding migration</button>
+                </div>
+                <div style="font-size:.66rem;color:var(--muted);margin-bottom:8px;">Uses the run's compounding settings. Migration pace comes from the <strong>Months to complete</strong> (Time unit) or <strong>Capacity / month</strong> (Capacity unit) below. Result is stored as a labeled <em>migrated</em> dataset.</div>
+                <div id="tco-compound-status" style="font-size:.72rem;color:var(--muted);"></div>
+                <div id="tco-compound-headline" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;"></div>
+                <div id="tco-compound-area" style="margin-top:12px;overflow-x:auto;"></div>
+              </div>
+
               <div class="card" style="padding:16px 20px;">
                 <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px;">
                   <span style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Migration Evaluation</span>
@@ -5098,8 +5145,23 @@ function resetGuiToDefaults(delayMs) {
       mixed_skus_in_group_flag:        document.getElementById("param-mixed-skus").checked,
       use_vm_inclusion_list:           document.getElementById("param-use-vm-inclusion").checked ? 1 : 0,
       frequency:                       document.getElementById("param-frequency").value,
+      // ── Compounding growth migration (opt-in; consumed by the Migration view) ──
+      compounding_growth:              document.getElementById("param-compounding").checked,
+      compounding_growth_amount:       parseFloat(document.getElementById("param-comp-growth").value) / 100,
+      growth_term:                     document.getElementById("param-comp-term").value,
+      migration_unit:                  document.getElementById("param-comp-unit").value,
+      migration_cost_per_tib:          parseFloat(document.getElementById("param-comp-cost").value) || 260,
     };
   };
+
+  // Populate the compounding growth-amount options (0–50% in 5% steps) + toggle.
+  (function(){
+    const gs = document.getElementById("param-comp-growth");
+    if (gs) { gs.innerHTML = ""; for (let p = 0; p <= 50; p += 5) { const o = document.createElement("option"); o.value = p; o.textContent = p + "%"; if (p === 20) o.selected = true; gs.appendChild(o); } }
+    const cb = document.getElementById("param-compounding");
+    const opts = document.getElementById("compounding-opts");
+    if (cb && opts) cb.addEventListener("change", () => { opts.style.display = cb.checked ? "flex" : "none"; });
+  })();
 
   // ── Efficiency sweep: derive the list of efficiency % to generate ──
   // Returns an array of integer percents (e.g. [30,40,50,60]) walking start→end
@@ -6009,6 +6071,7 @@ function resetGuiToDefaults(delayMs) {
     selectedKey = r.group_summary_key;
     selectedRun = r;
     updateEffSelector(r);    // show/refresh the efficiency-sibling selector
+    updateCompoundCard();    // show/hide the compounding-migration card for this run
     evalMonthByGroup = {};   // reset migration months when switching runs
     migPrecedence = {}; migOrder = {};   // reset per-group migration order
     projData = null;         // reset projection until this run's is loaded
@@ -6619,6 +6682,73 @@ function resetGuiToDefaults(delayMs) {
     } finally {
       btn.disabled = false; btn.textContent = old;
     }
+  }
+
+  // ── Compounding growth migration (Migration view) ──────────────────────────
+  function updateCompoundCard() {
+    const card = $("tco-compound-card"); if (!card) return;
+    const p = (selectedRun && selectedRun.params) || {};
+    const on = !!p.compounding_growth;
+    card.style.display = on ? "" : "none";
+    if (on) {
+      const pct = Math.round((p.compounding_growth_amount || 0) * 100);
+      $("tco-compound-params").textContent =
+        `${pct}%/yr · ${p.growth_term || "month"} · ${p.migration_unit || "time"} pace · $${p.migration_cost_per_tib || 260}/TiB`;
+    }
+  }
+  async function runCompoundingMigration() {
+    if (!selectedRun) return;
+    const p = selectedRun.params || {};
+    const unit = p.migration_unit || "time";
+    const migValue = (unit === "capacity") ? num($("tco-cap-per-month").value) : num($("tco-mig-months").value);
+    const st = $("tco-compound-status"), btn = $("btn-tco-compound-run");
+    st.textContent = "Running compounding migration…"; btn.disabled = true;
+    try {
+      const body = {
+        group_summary_key: selectedRun.group_summary_key,
+        growth: p.compounding_growth_amount || 0,
+        growth_term: p.growth_term || "month",
+        migration_unit: unit,
+        migration_value: migValue,
+        migration_cost_per_tib: p.migration_cost_per_tib || 260,
+        years: p.num_of_years || 5,
+        everpure_discount: num($("tco-everpure-discount").value) / 100,
+        partner_margin:    num($("tco-partner-margin").value) / 100,
+        azure_discount:    num($("tco-azure-discount").value) / 100,
+        min_savings:       num($("tco-min-savings").value) / 100,
+      };
+      const res = await fetch("/api/tco/compounding-migration", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Failed");
+      renderCompounding(d);
+      st.textContent = d.saved_key ? ("✓ Stored as “" + (d.label || "migrated dataset") + "”.") : "Computed (not stored).";
+    } catch(e) { st.textContent = "Error: " + e.message; $("tco-compound-area").innerHTML = ""; $("tco-compound-headline").innerHTML = ""; }
+    finally { btn.disabled = false; }
+  }
+  function renderCompounding(d) {
+    const money = v => "$" + Math.round(v).toLocaleString();
+    const ts = d.total_series || [], last = ts[ts.length - 1] || {};
+    let be = null; for (const x of ts) { if (x.cum_savings >= 0) { be = x.period; break; } }
+    const migrated = (d.groups || []).filter(g => g.mig_period).length;
+    const card = (l, v, s, c) => `<div class="card" style="padding:12px 14px;min-width:150px;flex:1;"><div style="font-size:.6rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">${l}</div><div style="font-size:1.1rem;font-weight:800;color:${c || 'var(--text)'};font-family:var(--font-mono);margin-top:3px;">${v}</div><div style="font-size:.58rem;color:var(--muted);margin-top:2px;">${s}</div></div>`;
+    $("tco-compound-headline").innerHTML =
+      card(`${d.params.horizon}-period cumulative`, money(last.cum_total || 0), "total migrated-model cost")
+      + card("Cumulative savings", money(last.cum_savings || 0), "vs. all-Azure grown", (last.cum_savings >= 0 ? "var(--accent)" : "var(--warning,#d97706)"))
+      + card("Total migration cost", money(last.cum_migration || 0), `@ $${d.params.migration_cost_per_tib}/TiB`)
+      + card("Breakeven", be ? ("period " + be) : "—", be ? "cum savings ≥ 0" : "not reached")
+      + card("Groups migrating", migrated + " / " + (d.groups || []).length, "included groups migrate");
+    const th = t => `<th style="text-align:right;padding:6px 9px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.58rem;text-transform:uppercase;white-space:nowrap;">${t}</th>`;
+    const td = (v, e) => `<td style="text-align:right;padding:5px 9px;border-bottom:1px solid var(--border);font-family:var(--font-mono);white-space:nowrap;${e || ''}">${v}</td>`;
+    const savCol = v => v >= 0 ? "color:var(--accent);" : "color:var(--warning,#d97706);";
+    let html = `<div style="font-size:.66rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">Across all groups — per ${d.params.growth_term}</div>`;
+    html += `<table style="border-collapse:collapse;width:100%;font-size:.72rem;"><thead><tr><th style="text-align:left;padding:6px 9px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.58rem;text-transform:uppercase;">Period</th>${th("Cap (TiB)")}${th("Azure $")}${th("Everpure $")}${th("Migration $")}${th("Total $")}${th("If all-Azure $")}${th("Savings $")}${th("Cum Total $")}${th("Cum Savings $")}</tr></thead><tbody>`;
+    ts.forEach(x => { html += `<tr><td style="text-align:left;padding:5px 9px;border-bottom:1px solid var(--border);font-weight:700;">${x.period}</td>${td(Math.round(x.cap_tib).toLocaleString())}${td(money(x.azure))}${td(money(x.everpure))}${td(x.migration ? money(x.migration) : "—")}${td(money(x.total))}${td(money(x.baseline_azure))}${td(money(x.savings), savCol(x.savings))}${td(money(x.cum_total))}${td(money(x.cum_savings), savCol(x.cum_savings) + "font-weight:700;")}</tr>`; });
+    html += `</tbody></table>`;
+    html += `<div style="font-size:.66rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin:14px 0 6px;">By group ${(d.groups || []).length > 200 ? "(top 200 by cost)" : ""}</div>`;
+    html += `<table style="border-collapse:collapse;width:100%;font-size:.72rem;"><thead><tr><th style="text-align:left;padding:6px 9px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.58rem;text-transform:uppercase;">Group</th><th style="text-align:left;padding:6px 9px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.58rem;text-transform:uppercase;">Region</th>${th("Orig Cap (TiB)")}${th("Migrates")}${th("Cum Total $")}</tr></thead><tbody>`;
+    (d.groups || []).slice().sort((a, b) => (b.cum_total || 0) - (a.cum_total || 0)).slice(0, 200).forEach(g => { html += `<tr><td style="text-align:left;padding:5px 9px;border-bottom:1px solid var(--border);font-family:var(--font-mono);">${escHtml(String(g.group))}</td><td style="text-align:left;padding:5px 9px;border-bottom:1px solid var(--border);">${escHtml(String(g.region || ""))}</td>${td((g.cap_gib / 1024).toFixed(1))}${td(g.mig_period ? ("period " + g.mig_period) : "—")}${td(money(g.cum_total))}</tr>`; });
+    html += `</tbody></table>`;
+    $("tco-compound-area").innerHTML = html;
   }
 
   async function loadMigrationPlans() {
@@ -7248,7 +7378,7 @@ function resetGuiToDefaults(delayMs) {
     if (mode === "parsed") populateParsedGroups();
     if (mode === "advanced") loadDfGroups();
     if (mode === "downloads") loadDownloads();
-    if (mode === "migration") { renderMigrationControls(); loadMigrationPlans(); }
+    if (mode === "migration") { renderMigrationControls(); loadMigrationPlans(); updateCompoundCard(); }
     if (mode === "ramp") { loadRampPlanOptions(); renderRamp(); }
     if (mode === "consolidation") renderConsolNegList();
     // Refresh the growth-view plan dropdown each time so plans saved/deleted in
@@ -8547,6 +8677,7 @@ function resetGuiToDefaults(delayMs) {
   $("btn-tco-view-download").addEventListener("click", downloadCurrentView);
   $("btn-tco-downloads-refresh").addEventListener("click", loadDownloads);
   $("btn-tco-evaluate").addEventListener("click", evaluateMigration);
+  $("btn-tco-compound-run").addEventListener("click", runCompoundingMigration);
   $("btn-tco-computes-csv").addEventListener("click", downloadComputeCsv);
   $("btn-tco-excluded-csv").addEventListener("click", downloadExcludedCsv);
   $("tco-mig-months").addEventListener("input", syncMigFromMonths);
