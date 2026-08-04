@@ -6728,25 +6728,30 @@ function resetGuiToDefaults(delayMs) {
   function renderCompounding(d) {
     const money = v => "$" + Math.round(v).toLocaleString();
     const ts = d.total_series || [], last = ts[ts.length - 1] || {};
+    // Label each period as "Y<year> <M|Q><n-in-year>" per the growth term.
+    const ppy = d.params.periods_per_year || (d.params.growth_term === "quarter" ? 4 : 12);
+    const tLetter = (d.params.growth_term === "quarter") ? "Q" : "M";
+    const termName = (d.params.growth_term === "quarter") ? "Quarter" : "Month";
+    const pLabel = t => `Y${Math.ceil(t / ppy)} ${tLetter}${((t - 1) % ppy) + 1}`;
     let be = null; for (const x of ts) { if (x.cum_savings >= 0) { be = x.period; break; } }
     const migrated = (d.groups || []).filter(g => g.mig_period).length;
     const card = (l, v, s, c) => `<div class="card" style="padding:12px 14px;min-width:150px;flex:1;"><div style="font-size:.6rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">${l}</div><div style="font-size:1.1rem;font-weight:800;color:${c || 'var(--text)'};font-family:var(--font-mono);margin-top:3px;">${v}</div><div style="font-size:.58rem;color:var(--muted);margin-top:2px;">${s}</div></div>`;
     $("tco-compound-headline").innerHTML =
-      card(`${d.params.horizon}-period cumulative`, money(last.cum_total || 0), "total migrated-model cost")
+      card(`${d.params.horizon}-${d.params.growth_term} cumulative`, money(last.cum_total || 0), "total migrated-model cost")
       + card("Cumulative savings", money(last.cum_savings || 0), "vs. all-Azure grown", (last.cum_savings >= 0 ? "var(--accent)" : "var(--warning,#d97706)"))
       + card("Total migration cost", money(last.cum_migration || 0), `@ $${d.params.migration_cost_per_tib}/TiB`)
-      + card("Breakeven", be ? ("period " + be) : "—", be ? "cum savings ≥ 0" : "not reached")
+      + card("Breakeven", be ? pLabel(be) : "—", be ? "cum savings ≥ 0" : "not reached")
       + card("Groups migrating", migrated + " / " + (d.groups || []).length, "included groups migrate");
     const th = t => `<th style="text-align:right;padding:6px 9px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.58rem;text-transform:uppercase;white-space:nowrap;">${t}</th>`;
     const td = (v, e) => `<td style="text-align:right;padding:5px 9px;border-bottom:1px solid var(--border);font-family:var(--font-mono);white-space:nowrap;${e || ''}">${v}</td>`;
     const savCol = v => v >= 0 ? "color:var(--accent);" : "color:var(--warning,#d97706);";
     let html = `<div style="font-size:.66rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">Across all groups — per ${d.params.growth_term}</div>`;
-    html += `<table style="border-collapse:collapse;width:100%;font-size:.72rem;"><thead><tr><th style="text-align:left;padding:6px 9px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.58rem;text-transform:uppercase;">Period</th>${th("Cap (TiB)")}${th("Azure $")}${th("Everpure $")}${th("Migration $")}${th("Total $")}${th("If all-Azure $")}${th("Savings $")}${th("Cum Total $")}${th("Cum Savings $")}</tr></thead><tbody>`;
-    ts.forEach(x => { html += `<tr><td style="text-align:left;padding:5px 9px;border-bottom:1px solid var(--border);font-weight:700;">${x.period}</td>${td(Math.round(x.cap_tib).toLocaleString())}${td(money(x.azure))}${td(money(x.everpure))}${td(x.migration ? money(x.migration) : "—")}${td(money(x.total))}${td(money(x.baseline_azure))}${td(money(x.savings), savCol(x.savings))}${td(money(x.cum_total))}${td(money(x.cum_savings), savCol(x.cum_savings) + "font-weight:700;")}</tr>`; });
+    html += `<table style="border-collapse:collapse;width:100%;font-size:.72rem;"><thead><tr><th style="text-align:left;padding:6px 9px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.58rem;text-transform:uppercase;">${termName}</th>${th("Cap (TiB)")}${th("Azure $")}${th("Everpure $")}${th("Migration $")}${th("Total $")}${th("If all-Azure $")}${th("Savings $")}${th("Cum Total $")}${th("Cum Savings $")}</tr></thead><tbody>`;
+    ts.forEach(x => { html += `<tr><td style="text-align:left;padding:5px 9px;border-bottom:1px solid var(--border);font-weight:700;white-space:nowrap;">${pLabel(x.period)}</td>${td(Math.round(x.cap_tib).toLocaleString())}${td(money(x.azure))}${td(money(x.everpure))}${td(x.migration ? money(x.migration) : "—")}${td(money(x.total))}${td(money(x.baseline_azure))}${td(money(x.savings), savCol(x.savings))}${td(money(x.cum_total))}${td(money(x.cum_savings), savCol(x.cum_savings) + "font-weight:700;")}</tr>`; });
     html += `</tbody></table>`;
     html += `<div style="font-size:.66rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin:14px 0 6px;">By group ${(d.groups || []).length > 200 ? "(top 200 by cost)" : ""}</div>`;
     html += `<table style="border-collapse:collapse;width:100%;font-size:.72rem;"><thead><tr><th style="text-align:left;padding:6px 9px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.58rem;text-transform:uppercase;">Group</th><th style="text-align:left;padding:6px 9px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.58rem;text-transform:uppercase;">Region</th>${th("Orig Cap (TiB)")}${th("Migrates")}${th("Cum Total $")}</tr></thead><tbody>`;
-    (d.groups || []).slice().sort((a, b) => (b.cum_total || 0) - (a.cum_total || 0)).slice(0, 200).forEach(g => { html += `<tr><td style="text-align:left;padding:5px 9px;border-bottom:1px solid var(--border);font-family:var(--font-mono);">${escHtml(String(g.group))}</td><td style="text-align:left;padding:5px 9px;border-bottom:1px solid var(--border);">${escHtml(String(g.region || ""))}</td>${td((g.cap_gib / 1024).toFixed(1))}${td(g.mig_period ? ("period " + g.mig_period) : "—")}${td(money(g.cum_total))}</tr>`; });
+    (d.groups || []).slice().sort((a, b) => (b.cum_total || 0) - (a.cum_total || 0)).slice(0, 200).forEach(g => { html += `<tr><td style="text-align:left;padding:5px 9px;border-bottom:1px solid var(--border);font-family:var(--font-mono);">${escHtml(String(g.group))}</td><td style="text-align:left;padding:5px 9px;border-bottom:1px solid var(--border);">${escHtml(String(g.region || ""))}</td>${td((g.cap_gib / 1024).toFixed(1))}${td(g.mig_period ? pLabel(g.mig_period) : "—")}${td(money(g.cum_total))}</tr>`; });
     html += `</tbody></table>`;
     $("tco-compound-area").innerHTML = html;
   }
