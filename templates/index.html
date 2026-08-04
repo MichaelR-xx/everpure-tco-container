@@ -2247,39 +2247,47 @@ body.theme-kyndryl {
   const $ = id => document.getElementById(id);
   const HELP_CONTENT = {
     workflow: { title: "📖 How to use the Everpure Azure Disk Viz Tool", html: `
-      <p>This tool estimates and compares the multi-year cost of running storage on <strong>Azure managed disks</strong> versus <strong>Pure Storage / Everpure</strong>. You upload a workload inventory, map its columns, run a cost analysis, and review the results. Work flows left-to-right across the tabs.</p>
+      <p>This tool estimates and compares the multi-year cost of running storage on <strong>Azure managed disks</strong> versus <strong>Pure Storage / Everpure</strong>. You get a workload in (upload a real inventory or build a synthetic one), run a cost analysis, and review multi-year cost, growth, migration, and consolidation. Work flows left-to-right across the tabs.</p>
       <h3>1 · Sign in</h3>
       <ul>
-        <li>Enter your username and password to access the tool.</li>
+        <li>Choose a <strong>storage location</strong> (where all data is read/written), then enter your username and password.</li>
       </ul>
-      <h3>2 · Customers</h3>
+      <h3>2 · Customer &amp; scenario</h3>
       <ul>
-        <li>Select or create a <strong>customer</strong> and a <strong>scenario</strong> (e.g. <code>default</code>). Together they define the folder your data lives under.</li>
+        <li>Select or create a <strong>customer</strong> and a <strong>scenario</strong> (e.g. <code>default</code>). Together they namespace everything under <code>&lt;customer&gt;/&lt;scenario&gt;/</code>. Use scenarios to keep separate analyses for one customer (e.g. <code>prod</code>, <code>dr</code>).</li>
       </ul>
-      <h3>3 · Data Upload — upload &amp; map your data</h3>
+      <h3>3 · Get your data in — two ways</h3>
+      <p><strong>A · Data Upload</strong> (a real inventory):</p>
       <ol>
-        <li>Drop or browse to a workload inventory <strong>CSV</strong> and upload it.</li>
-        <li>Columns are <strong>auto-matched</strong> to known fields; a <strong>data preview</strong> (first 3 rows) shows above the mapping grid.</li>
-        <li>Adjust any mapping. <span class="hstep">Disk Type</span> and <span class="hstep">Disk Size</span> are required. Tick <strong>Searchable</strong> on text columns you'll want to filter on later.</li>
-        <li>Optionally save/load a <strong>mapping template</strong>. Click <strong>Parse Data</strong> to produce the parsed dataset.</li>
+        <li>Drop or browse to a workload inventory <strong>CSV</strong>. Columns are <strong>auto-matched</strong>; a data preview shows above the mapping grid.</li>
+        <li>Adjust mappings — <span class="hstep">Disk Type</span> and <span class="hstep">Disk Size</span> are required. Tick <strong>Searchable</strong> on text columns (host/VM names, tags) you'll want to filter on later.</li>
+        <li>Optionally save/load a <strong>mapping template</strong>, then <strong>Parse Data</strong> to produce the dataset.</li>
       </ol>
+      <p><strong>B · 🧱 Workload Builder</strong> (a synthetic workload for what-if sizing):</p>
+      <ul>
+        <li>Pick a <strong>capacity basis</strong> — Original, or <strong>Licensed (Everpure)</strong> where original = <code>licensed ÷ efficiency</code>.</li>
+        <li>Use <strong>Simple sizing</strong> (total capacity + disk type + volume count → per-volume sizes snapped to valid Azure sizes) and/or build <strong>models</strong>, set <strong>placement</strong> (region / zone / VNet) between adds, then <strong>Save workload</strong> — it parses into a dataset ready for Run Analysis.</li>
+      </ul>
       <h3>4 · Results — run the analysis</h3>
       <ol>
         <li>Pick a parsed dataset from the list.</li>
         <li>Set <strong>Analysis Parameters</strong>: deployment model (<strong>Dedicated</strong> or <strong>Azure Native</strong>), <strong>Growth (yearly)</strong>, data-reduction ratio, snapshot rate, efficiency, SKU, years, and projection cycle.</li>
-        <li><em>Optional</em> — sweep a <strong>range of efficiency settings</strong> in one shot to generate several runs at once.</li>
-        <li><em>Optional</em> — use the <strong>🔎 Search data / Use-case filter</strong> to keep or exclude rows matching terms (e.g. <code>sql</code>, <code>db</code>). <strong>Preview</strong> the split, <strong>Apply to summary</strong> to re-scope the metrics, or <strong>Save filtered dataset</strong> as a new dataset.</li>
+        <li><em>Optional</em> — sweep a <strong>range of efficiency settings</strong> to generate several runs at once.</li>
+        <li><em>Optional</em> — use the <strong>🔎 Use-case filter</strong> to include/exclude rows matching terms (e.g. <code>sql</code>, <code>db</code>). <strong>Preview</strong>, <strong>Apply to summary</strong>, or <strong>Save filtered dataset</strong>.</li>
         <li>Click <strong>Run Analysis</strong> — this generates a TCO you'll review on the next tab.</li>
       </ol>
-      <div class="hnote">Growth is modeled as <strong>yearly compounding growth</strong>. The single Growth (yearly) dropdown drives both the growth projection and the compounding migration model available in TCO Review.</div>
+      <div class="hnote">Growth is modeled as <strong>yearly compounding growth</strong>. The single Growth (yearly) dropdown drives both the growth projection and the compounding migration model in TCO Review.</div>
       <h3>5 · TCO Review — compare &amp; explore</h3>
+      <p>Browse generated TCOs (color-coded by model; filtered runs show a 🔎 badge). Tune <strong>commercial adjustments</strong> (min savings, Everpure discount, partner margin ≤ Everpure discount, Azure discount, region). Mark a run <strong>primary</strong> so others inherit its included groups, or <strong>compare</strong> runs side by side. Switch views:</p>
       <ul>
-        <li>Browse generated TCOs (color-coded by deployment model; filtered runs show a 🔎 badge).</li>
-        <li>Apply <strong>commercial adjustments</strong> (min savings, Everpure discount, partner margin ≤ Everpure discount, Azure discount, region filter).</li>
-        <li>Switch views: <strong>Data</strong> (per-group table + Year-1 summary), <strong>Graphs</strong> (cost + growth projection, optionally folding in a migration plan; CSV export of the cost-by-period table), <strong>Migration</strong> (build/save a phased, compounding migration schedule), <strong>Ramp</strong> (phased cost/savings over the growth projection), <strong>Consolidation</strong> (re-home negative-savings groups), <strong>Advanced</strong> (raw group data), <strong>Downloads</strong> (saved PDFs).</li>
-        <li>Set a run as <strong>primary</strong> and have others follow it, or <strong>compare</strong> multiple runs side by side.</li>
+        <li><strong>Data</strong> — per-group table + the <strong>Overall Results for Year 1</strong> summary.</li>
+        <li><strong>Graphs</strong> — cost charts + a <strong>growth projection</strong> and an <strong>N-Year TCO Summary</strong>. Default shows growth with no migration; use <strong>Include migration plan</strong> to fold in a saved plan or this run's compounding migration (Everpure ramps in, unmigrated capacity stays on Azure, a one-time migration cost applies). Export the cost-by-period table to <strong>CSV</strong>, or the graphs to <strong>PDF</strong>.</li>
+        <li><strong>Migration</strong> — build a phased, compounding migration: set <strong>Months to complete</strong> or <strong>Capacity / month</strong> plus per-group precedence/order, click <strong>▶ Evaluate</strong>, and <strong>Save</strong> named plans (usable in Graphs).</li>
+        <li><strong>Ramp</strong> — the phased migration cost/savings over the growth projection, with cumulative savings vs. staying on Azure.</li>
+        <li><strong>Consolidation</strong> — re-home <strong>negative-savings</strong> groups into positive ones in the same region, priced with the intra-region <strong>VNet peering</strong> the moves require; builds a new consolidated dataset and re-runs the TCO.</li>
+        <li><strong>Advanced</strong> — raw per-group data (CSV); <strong>Downloads</strong> — saved PDF reports.</li>
       </ul>
-      <div class="hnote">Tip: each section has its own <strong>❓ Help</strong> button in the heading for details specific to that page — including <strong>🧱 Workload Builder</strong>, an alternative to uploading a CSV where you assemble a synthetic workload from reusable models.</div>` },
+      <div class="hnote">Tip: each section has its own <strong>❓ Help</strong> button in the heading for details specific to that page.</div>` },
 
     login: { title: "❓ Login &amp; Storage Location", html: `
       <p>Enter your username and password, then choose a <strong>storage location</strong> — this is where the tool reads and writes all data. It must be set before you can sign in.</p>
