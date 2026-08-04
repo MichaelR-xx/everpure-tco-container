@@ -2464,9 +2464,20 @@ def tco_compounding_migration():
                        "azure": adj_az, "everpure": adj_ev, "rate": rate, "included": rate >= minSav})
 
     # Migration schedule: only positive-savings (included) groups migrate; excluded
-    # groups stay on Azure forever (and keep growing). Order best-savings first.
-    order = sorted([g for g in groups if g["included"]], key=lambda g: -g["rate"])
+    # groups stay on Azure forever (and keep growing). Order = precedence tier
+    # (early→middle→late), then explicit order (lower first), then best savings —
+    # matching the Migration view's ordering so changing those terms re-runs it.
+    prec = body.get("precedence", {}) or {}
+    omap = body.get("order", {}) or {}
+    def _rank(g):
+        tier = {"early": 0, "middle": 1, "late": 2}.get(str(prec.get(str(g["group"]), "middle")).lower(), 1)
+        ov = omap.get(str(g["group"]))
+        try: ov = float(ov)
+        except (TypeError, ValueError): ov = 1e9
+        return (tier, ov, -g["rate"])
+    order = sorted([g for g in groups if g["included"]], key=_rank)
     if mig_unit == "capacity":
+        # Fill each period up to the capacity budget, in rank order.
         budget = mig_value * 1024.0   # GiB per period
         per, used = 1, 0.0
         for g in order:
@@ -2474,11 +2485,13 @@ def tco_compounding_migration():
                 per += 1; used = 0.0
             g["mig_period"] = min(per, horizon); used += g["cap_gib"]
     else:
+        # Time: complete migration in `mig_value` periods, assigning groups in rank
+        # order (so precedence/order actually change who migrates when).
         P = int(mig_value) if mig_value >= 1 else len(order)
         P = max(1, min(P, horizon))
-        load = [0.0] * P
-        for g in sorted(order, key=lambda x: -x["cap_gib"]):
-            j = min(range(P), key=lambda k: load[k]); load[j] += g["cap_gib"]; g["mig_period"] = j + 1
+        n_per = max(1, (len(order) + P - 1) // P)
+        for idx, g in enumerate(order):
+            g["mig_period"] = min(idx // n_per + 1, P)
     for g in groups:
         g.setdefault("mig_period", None)   # excluded groups never migrate
 

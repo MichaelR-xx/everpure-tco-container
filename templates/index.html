@@ -5339,6 +5339,8 @@ function resetGuiToDefaults(delayMs) {
   let projData     = null;   // loaded per-group growth projection for the selected run
   let projMigPlan  = null;    // {gid:{start,done}} migration timeline folded into the growth view
   let projMigPlanName = "";   // display name of the folded-in migration plan
+  let lastCompound = null;    // last compounding-migration result (for the Graphs import)
+  let projCompound = false;   // Graphs view is showing the compounding migration
   // Primary / follower linkage (persisted per customer). The primary run defines
   // an included-group set (using the primary's own inclusion settings) that its
   // followers restrict their analysis to.
@@ -6076,6 +6078,7 @@ function resetGuiToDefaults(delayMs) {
     migPrecedence = {}; migOrder = {};   // reset per-group migration order
     projData = null;         // reset projection until this run's is loaded
     projMigPlan = null; projMigPlanName = "";   // clear folded-in migration plan
+    lastCompound = null; projCompound = false;  // clear the compounding import
     renderRunList();
     clearMsgs(detailMsgs);
     try {
@@ -6459,6 +6462,11 @@ function resetGuiToDefaults(delayMs) {
 
   async function evaluateMigration() {
     if (!selectedKey) { showMsgs(detailMsgs, ["Select a TCO run first."], "error"); return; }
+    // Compounding runs: Evaluate is combined with the compounding model — running
+    // it (re-)evaluates the migration with the current terms.
+    if (selectedRun && selectedRun.params && selectedRun.params.compounding_growth) {
+      return runCompoundingMigration();
+    }
     const params = migrationParams();
     const summaryEl = $("tco-eval-summary");
     const area = $("tco-eval-area");
@@ -6696,34 +6704,50 @@ function resetGuiToDefaults(delayMs) {
         `${pct}%/yr · ${p.growth_term || "month"} · ${p.migration_unit || "time"} pace · $${p.migration_cost_per_tib || 260}/TiB`;
     }
   }
-  async function runCompoundingMigration() {
-    if (!selectedRun) return;
+  // Build the compounding-migration request from the run's compounding settings +
+  // the CURRENT migration terms (months/capacity + precedence/order) + commercials,
+  // and run it. Shared by the Migration view and the Graphs-view import so the
+  // schedule terms drive both. Returns the result (or throws).
+  async function computeCompound() {
     const p = selectedRun.params || {};
     const unit = p.migration_unit || "time";
     const migValue = (unit === "capacity") ? num($("tco-cap-per-month").value) : num($("tco-mig-months").value);
+    const body = {
+      group_summary_key: selectedRun.group_summary_key,
+      growth: p.compounding_growth_amount || 0,
+      growth_term: p.growth_term || "month",
+      migration_unit: unit,
+      migration_value: migValue,
+      migration_cost_per_tib: p.migration_cost_per_tib || 260,
+      years: p.num_of_years || 5,
+      precedence: migPrecedence, order: migOrder,   // migration order = a re-runnable term
+      everpure_discount: num($("tco-everpure-discount").value) / 100,
+      partner_margin:    num($("tco-partner-margin").value) / 100,
+      azure_discount:    num($("tco-azure-discount").value) / 100,
+      min_savings:       num($("tco-min-savings").value) / 100,
+    };
+    const res = await fetch("/api/tco/compounding-migration", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || "Failed");
+    lastCompound = d;
+    // Reflect the migration start period per group in the Data view's "Mig Month".
+    evalMonthByGroup = {};
+    (d.groups || []).forEach(g => { if (g.mig_period) evalMonthByGroup[String(g.group)] = g.mig_period; });
+    return d;
+  }
+  async function runCompoundingMigration() {
+    if (!selectedRun) return;
     const st = $("tco-compound-status"), btn = $("btn-tco-compound-run");
-    st.textContent = "Running compounding migration…"; btn.disabled = true;
+    st.textContent = "Running compounding migration…"; if (btn) btn.disabled = true;
     try {
-      const body = {
-        group_summary_key: selectedRun.group_summary_key,
-        growth: p.compounding_growth_amount || 0,
-        growth_term: p.growth_term || "month",
-        migration_unit: unit,
-        migration_value: migValue,
-        migration_cost_per_tib: p.migration_cost_per_tib || 260,
-        years: p.num_of_years || 5,
-        everpure_discount: num($("tco-everpure-discount").value) / 100,
-        partner_margin:    num($("tco-partner-margin").value) / 100,
-        azure_discount:    num($("tco-azure-discount").value) / 100,
-        min_savings:       num($("tco-min-savings").value) / 100,
-      };
-      const res = await fetch("/api/tco/compounding-migration", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "Failed");
+      const d = await computeCompound();
       renderCompounding(d);
-      st.textContent = d.saved_key ? ("✓ Stored as “" + (d.label || "migrated dataset") + "”.") : "Computed (not stored).";
+      st.textContent = (d.saved_key ? ("✓ Stored as “" + (d.label || "migrated dataset") + "”.") : "Computed (not stored).")
+        + " — available to import in the Graphs view.";
+      // If the Graphs view is currently showing the compounding projection, refresh it.
+      if (projCompound) updateProjection();
     } catch(e) { st.textContent = "Error: " + e.message; $("tco-compound-area").innerHTML = ""; $("tco-compound-headline").innerHTML = ""; }
-    finally { btn.disabled = false; }
+    finally { if (btn) btn.disabled = false; }
   }
   function renderCompounding(d) {
     const money = v => "$" + Math.round(v).toLocaleString();
@@ -7388,7 +7412,7 @@ function resetGuiToDefaults(delayMs) {
     if (mode === "consolidation") renderConsolNegList();
     // Refresh the growth-view plan dropdown each time so plans saved/deleted in
     // the Migration view stay in sync (avoids selecting a since-deleted plan).
-    if (mode === "graphs" && projData) loadProjMigPlanOptions();
+    if (mode === "graphs" && (projData || (selectedRun && selectedRun.params && selectedRun.params.compounding_growth))) loadProjMigPlanOptions();
   }
   document.querySelectorAll(".tco-view-btn").forEach(btn => {
     btn.addEventListener("click", () => applyView(btn.dataset.view));
@@ -8110,6 +8134,12 @@ function resetGuiToDefaults(delayMs) {
     if (!sel) return;
     const prev = sel.value;
     sel.innerHTML = `<option value="">— none (grow from day one) —</option>`;
+    // For compounding runs, offer the compounding migration as an import here.
+    if (selectedRun && selectedRun.params && selectedRun.params.compounding_growth) {
+      const o = document.createElement("option");
+      o.value = "__compound__"; o.textContent = "▲ Compounding migration (this run)";
+      sel.appendChild(o);
+    }
     $("tco-proj-migplan-note").textContent = "";
     if (!selectedKey) return;
     try {
@@ -8121,6 +8151,7 @@ function resetGuiToDefaults(delayMs) {
         o.value = p.key; o.textContent = p.name;
         sel.appendChild(o);
       });
+      if (projCompound) sel.value = "__compound__";
       if (!plans.length) {
         $("tco-proj-migplan-note").textContent = "No saved plans — create one in the Migration view.";
       }
@@ -8171,6 +8202,21 @@ function resetGuiToDefaults(delayMs) {
   // Fetch a saved plan's per-group timeline and fold it into the projection,
   // AND apply the commercials / group alignment / capacity the plan was built with.
   async function selectProjMigPlan(key) {
+    if (key === "__compound__") {
+      // Import the compounding migration into the growth projection + summary.
+      projCompound = true; projMigPlan = null; projMigPlanName = "compounding migration";
+      $("tco-proj-migplan-note").textContent = "Loading compounding migration…";
+      try {
+        if (!lastCompound) await computeCompound();
+        updateProjection();
+        $("tco-proj-migplan-note").textContent = "Showing the compounding migration — Everpure ramps with compounding growth; Azure drops the period after each group migrates. Re-run in the Migration view to update.";
+      } catch(e) {
+        projCompound = false;
+        $("tco-proj-migplan-note").textContent = "Could not load compounding migration: " + e.message;
+      }
+      return;
+    }
+    projCompound = false;
     if (!key) { projMigPlan = null; projMigPlanName = ""; evalMonthByGroup = {}; recompute(); updateProjection(); return; }
     $("tco-proj-migplan-note").textContent = "Loading plan…";
     try {
@@ -8373,7 +8419,35 @@ function resetGuiToDefaults(delayMs) {
     });
   }
 
+  // Map the compounding-migration total_series into the growth-projection shape so
+  // the existing chart + summary render it (and the summary reflects it).
+  function renderCompoundProjection() {
+    const d = lastCompound; if (!d) return;
+    const ppy = d.params.periods_per_year || (d.params.growth_term === "quarter" ? 4 : 12);
+    const tL = d.params.growth_term === "quarter" ? "Q" : "M";
+    const pLabel = t => `Y${Math.ceil(t / ppy)} ${tL}${((t - 1) % ppy) + 1}`;
+    const series = (d.total_series || []).map(x => ({
+      period: x.period, label: pLabel(x.period), growth_pct: 0,
+      everpure_total: x.total,                 // migrated-model actual cost (Everpure + Azure-still + migration)
+      azure_native: x.baseline_azure,          // all-Azure grown baseline
+      savings: x.savings,
+      savings_pct: x.baseline_azure ? Math.round(x.savings / x.baseline_azure * 10000) / 100 : 0,
+      cumulative_savings: x.cum_savings,
+      everpure_license: x.everpure, everpure_infra: x.migration,
+      everpure_capacity: 0, everpure_throughput: 0, unmig_azure: x.azure,
+      licensed_capacity: x.cap_tib,            // TiB
+    }));
+    const migrated = (d.groups || []).filter(g => g.mig_period).length;
+    renderProjection(series, {
+      years: d.params.years,
+      frequency: d.params.growth_term === "quarter" ? "quarterly" : "monthly",
+      yearly_growth: d.params.growth, included: migrated,
+      isAzn: false, migration: d.label || "compounding migration",
+    });
+  }
+
   function updateProjection() {
+    if (projCompound) { renderCompoundProjection(); if (viewMode === "ramp") renderRamp(); return; }
     if (!projData || !projData.periods) return;
     const series = buildProjSeries(projMigPlan);
     const isAzn = String((projData.method || (selectedRun && selectedRun.method) || "")).toLowerCase() === "azure_native";
