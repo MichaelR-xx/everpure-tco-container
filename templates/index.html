@@ -8478,19 +8478,33 @@ function resetGuiToDefaults(delayMs) {
   // The one-time migration cost is a compounding-run concept, so for any run with
   // compounding growth enabled we surface it in the Graphs summary: a "Migration
   // Cost (one-time)" tile plus Everpure/savings totals that fold it into the
-  // N-year figures. Steady-state basis (original capacity × $/TiB), consistent
-  // with the other N-year totals shown in this summary.
-  function updateGraphsMigrationTile() {
+  // N-year figures.
+  //
+  // The migration total MATCHES the Growth Projection's — i.e. the compounding
+  // model's cumulative migration cost (capacity grown up to each group's
+  // migration month), taken from lastCompound. If that hasn't been computed yet
+  // we compute it here (same params the projection uses); a steady-state estimate
+  // (original capacity × $/TiB) is only a last-resort fallback if that fails.
+  async function updateGraphsMigrationTile() {
     const gk = $("tco-graphs-kpis"); if (!gk) return;
-    gk.querySelectorAll("[data-mig-tile]").forEach(e => e.remove());
     const rp = (selectedRun && selectedRun.params) || {};
-    if (!rp.compounding_growth || !lastTot) return;
-    const rate    = num(rp.migration_cost_per_tib) || 260;      // $/TiB
-    const years   = parseInt(rp.num_of_years, 10) || 5;
-    const months  = lastMonths || 12;
-    const migCost = (lastTot.capOrig || 0) / 1024 * rate;       // one-time
-    const everN   = (lastTot.everpure || 0) * months * years;   // N-year Everpure (recurring)
-    const azureN  = (lastTot.azure    || 0) * months * years;   // N-year Azure baseline
+    const clear = () => gk.querySelectorAll("[data-mig-tile]").forEach(e => e.remove());
+    if (!rp.compounding_growth || !lastTot) { clear(); return; }
+    const rate   = num(rp.migration_cost_per_tib) || 260;      // $/TiB
+    const years  = parseInt(rp.num_of_years, 10) || 5;
+    const months = lastMonths || 12;
+    // Prefer the projection's growth-adjusted migration total; compute it if needed.
+    let migCost = null;
+    let src = lastCompound;
+    if (!src && selectedRun && selectedRun.group_summary_key) {
+      try { src = await computeCompound(); } catch (e) { src = null; }
+    }
+    if (src && src.total_series && src.total_series.length) {
+      migCost = src.total_series[src.total_series.length - 1].cum_migration || 0;
+    }
+    if (migCost == null) migCost = (lastTot.capOrig || 0) / 1024 * rate;   // fallback
+    const everN  = (lastTot.everpure || 0) * months * years;   // N-year Everpure (recurring)
+    const azureN = (lastTot.azure    || 0) * months * years;   // N-year Azure baseline
     const everInclMig = everN + migCost;
     const savInclMig  = azureN - everInclMig;
     const tile = (label, val, color) =>
@@ -8498,6 +8512,7 @@ function resetGuiToDefaults(delayMs) {
          <span style="font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">${label}</span>
          <span style="font-size:1.05rem;font-weight:700;font-family:var(--font-mono);color:${color || "var(--text)"};">$${Math.round(val).toLocaleString()}</span>
        </div>`;
+    clear();   // clear late (after any await) so we don't leave a gap while computing
     gk.insertAdjacentHTML("beforeend",
       tile("Migration Cost (one-time)", migCost, "var(--warning,#d97706)") +
       tile(`Everpure Total incl. Migration (${years}yr)`, everInclMig, "var(--accent)") +
