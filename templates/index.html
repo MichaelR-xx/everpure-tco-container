@@ -2032,6 +2032,7 @@ body.theme-kyndryl {
                     <option value="">— none (grow from day one) —</option>
                   </select>
                   <span id="tco-proj-migplan-note" style="font-size:.68rem;color:var(--muted);"></span>
+                  <button id="btn-tco-proj-csv" class="btn" style="margin-left:auto;font-size:.72rem;padding:5px 10px;white-space:nowrap;">⬇ CSV (cost by period)</button>
                 </div>
                 <div id="tco-proj-summary" style="font-size:.72rem;color:var(--muted);margin-bottom:10px;">Select a run to view its growth projection (set the growth rate, cycle, and years on the Results window when generating).</div>
                 <div id="tco-proj-graph" style="overflow-x:auto;"></div>
@@ -5339,6 +5340,7 @@ function resetGuiToDefaults(delayMs) {
   let projMigPlanName = "";   // display name of the folded-in migration plan
   let lastCompound = null;    // last compounding-migration result (for the Graphs import)
   let projCompound = false;   // Graphs view is showing the compounding migration
+  let lastProjTable = null;   // {columns, rows} of the last-rendered cost-by-period table (for CSV export)
   // Primary / follower linkage (persisted per customer). The primary run defines
   // an included-group set (using the primary's own inclusion settings) that its
   // followers restrict their analysis to.
@@ -8699,6 +8701,7 @@ function resetGuiToDefaults(delayMs) {
         : "") +
       (meta.migrationCost ? ` · <strong style="color:var(--warning,#d97706);">Total migration cost: ${fmtUsd(meta.migrationCost)}</strong>` : "");
     if (!series.length || !meta.included) {
+      lastProjTable = null;
       $("tco-proj-graph").innerHTML = "";
       $("tco-proj-area").innerHTML = `<div style="color:var(--muted);font-size:.8rem;">No included groups — adjust the minimum savings rate above.</div>`;
       return;
@@ -8801,6 +8804,44 @@ function resetGuiToDefaults(delayMs) {
     });
     html += `</tbody></table>`;
     $("tco-proj-area").innerHTML = html;
+
+    // Capture the exact cost-by-period table (raw numeric values) for CSV export.
+    lastProjTable = {
+      columns: head,
+      rows: series.map(s => [
+        s.period,
+        s.label,
+        Math.round(num(s.everpure_total)),
+        ...breakdown.map(b => Math.round(num(s[b[1]]))),
+        Math.round(num(s.azure_native)),
+        Math.round(num(s.savings)),
+        (s.savings_pct != null ? s.savings_pct : 0),
+        Math.round(num(s.cumulative_savings)),
+        Math.round(num(s.licensed_capacity)),
+      ]),
+    };
+  }
+
+  // Download just the Growth Projection cost-by-period table as CSV.
+  function downloadProjectionCsv() {
+    if (!lastProjTable || !lastProjTable.rows.length) {
+      showMsgs(detailMsgs, ["Nothing to download — open a run's Graphs view with a growth projection first."], "error");
+      return;
+    }
+    const esc = v => {
+      const s = String(v == null ? "" : v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = [lastProjTable.columns.map(esc).join(",")];
+    lastProjTable.rows.forEach(r => lines.push(r.map(esc).join(",")));
+    const genStamp = selectedRun ? String(selectedRun.tco_id || "").split("_").pop() : "";
+    const fname = `growth_projection_${selectedRun ? selectedRun.scenario : "tco"}_${genStamp}.csv`.replace(/[^\w.\-]+/g, "_");
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
   }
 
   // Download the currently-active view: CSV for Data/Advanced, PDF for Graphs.
@@ -8841,6 +8882,7 @@ function resetGuiToDefaults(delayMs) {
   $("btn-tco-mig-save").addEventListener("click", saveMigrationPlan);
   $("btn-tco-mig-plans-refresh").addEventListener("click", loadMigrationPlans);
   $("tco-proj-migplan").addEventListener("change", (e) => selectProjMigPlan(e.target.value));
+  $("btn-tco-proj-csv").addEventListener("click", downloadProjectionCsv);
   $("btn-tco-mig-reset").addEventListener("click", () => { migPrecedence = {}; migOrder = {}; renderMigrationControls(); });
   $("tco-dfg-group-filter").addEventListener("change", applyDfgFilter);
   $("btn-tco-compare").addEventListener("click", runComparison);
