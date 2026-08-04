@@ -1169,17 +1169,10 @@ body.theme-kyndryl {
           <!-- Row 1: numeric sliders -->
           <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;">
 
-            <!-- Growth % -->
-            <div style="display:flex;flex-direction:column;gap:7px;">
-              <div style="display:flex;justify-content:space-between;align-items:baseline;">
-                <label style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Growth</label>
-                <span style="font-size:.78rem;font-weight:700;color:var(--accent);font-family:var(--font-mono);" id="val-growth">20%</span>
-              </div>
-              <input type="range" id="param-growth" min="0" max="100" step="1" value="20"
-                style="width:100%;accent-color:var(--accent);cursor:pointer;" />
-              <div style="display:flex;justify-content:space-between;font-size:.62rem;color:var(--muted);">
-                <span>0%</span><span>100%</span>
-              </div>
+            <!-- Growth (yearly, compounding) -->
+            <div style="display:flex;flex-direction:column;gap:7px;min-width:130px;">
+              <label style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Growth (yearly)</label>
+              <select id="param-growth" style="padding:9px 28px 9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.82rem;font-family:var(--font-mono);cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 12 12%22><path fill=%22%238a8070%22 d=%22M6 8L1 3h10z%22/></svg>');background-repeat:no-repeat;background-position:right 9px center;"></select>
             </div>
 
             <!-- DRR (Dedicated: slider) -->
@@ -1376,39 +1369,6 @@ body.theme-kyndryl {
             </div>
 
           </div><!-- end discrete row -->
-
-          <!-- ── Compounding growth migration (opt-in) ───────── -->
-          <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px;">
-            <label style="display:flex;align-items:center;gap:8px;font-size:.8rem;font-weight:700;color:var(--text);cursor:pointer;">
-              <input type="checkbox" id="param-compounding" style="accent-color:var(--accent);width:16px;height:16px;cursor:pointer;" />
-              Compounding growth migration
-              <span style="font-weight:400;font-size:.68rem;color:var(--muted);">— the TCO Review Migration view will model migration with compounding growth</span>
-            </label>
-            <div id="compounding-opts" style="display:none;flex-wrap:wrap;gap:20px;align-items:flex-end;margin-top:12px;">
-              <div style="display:flex;flex-direction:column;gap:7px;min-width:130px;">
-                <label style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Growth amount (yearly)</label>
-                <select id="param-comp-growth" style="padding:9px 28px 9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.82rem;font-family:var(--font-mono);cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 12 12%22><path fill=%22%238a8070%22 d=%22M6 8L1 3h10z%22/></svg>');background-repeat:no-repeat;background-position:right 9px center;"></select>
-              </div>
-              <div style="display:flex;flex-direction:column;gap:7px;min-width:120px;">
-                <label style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Growth term</label>
-                <select id="param-comp-term" style="padding:9px 28px 9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.82rem;font-family:var(--font-ui);cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 12 12%22><path fill=%22%238a8070%22 d=%22M6 8L1 3h10z%22/></svg>');background-repeat:no-repeat;background-position:right 9px center;">
-                  <option value="month" selected>Month</option>
-                  <option value="quarter">Quarter</option>
-                </select>
-              </div>
-              <div style="display:flex;flex-direction:column;gap:7px;min-width:120px;">
-                <label style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Migration unit</label>
-                <select id="param-comp-unit" style="padding:9px 28px 9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.82rem;font-family:var(--font-ui);cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 12 12%22><path fill=%22%238a8070%22 d=%22M6 8L1 3h10z%22/></svg>');background-repeat:no-repeat;background-position:right 9px center;">
-                  <option value="time" selected>Time</option>
-                  <option value="capacity">Capacity</option>
-                </select>
-              </div>
-              <div style="display:flex;flex-direction:column;gap:7px;min-width:150px;">
-                <label style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Migration cost / TiB ($)</label>
-                <input type="number" id="param-comp-cost" value="260" min="0" step="1" style="padding:9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.82rem;font-family:var(--font-mono);box-sizing:border-box;" />
-              </div>
-            </div>
-          </div>
 
           <!-- ── Advanced Configuration (collapsible) ───────── -->
           <div id="adv-config-wrapper" style="border-top:1px solid var(--border);padding-top:14px;">
@@ -4959,7 +4919,6 @@ function resetGuiToDefaults(delayMs) {
     });
   }
 
-  bindSlider("param-growth",    "val-growth",    v => `${v}%`);
   bindSlider("param-drr",       "val-drr",       v => `${parseFloat(v).toFixed(1)}×`);
   bindSlider("param-snapshot",  "val-snapshot",  v => `${v}%`);
   bindSlider("param-initsize",  "val-initsize",  v => `${v}%`);
@@ -5144,22 +5103,28 @@ function resetGuiToDefaults(delayMs) {
       mixed_skus_in_group_flag:        document.getElementById("param-mixed-skus").checked,
       use_vm_inclusion_list:           document.getElementById("param-use-vm-inclusion").checked ? 1 : 0,
       frequency:                       document.getElementById("param-frequency").value,
-      // ── Compounding growth migration (opt-in; consumed by the Migration view) ──
-      compounding_growth:              document.getElementById("param-compounding").checked,
-      compounding_growth_amount:       parseFloat(document.getElementById("param-comp-growth").value) / 100,
-      growth_term:                     document.getElementById("param-comp-term").value,
-      migration_unit:                  document.getElementById("param-comp-unit").value,
-      migration_cost_per_tib:          parseFloat(document.getElementById("param-comp-cost").value) || 260,
+      // ── Compounding growth migration ──
+      // The compounding growth + migration model is always used now; it is driven
+      // by the single Growth (yearly) dropdown above. Term/unit/cost use defaults
+      // (the Migration view controls the schedule, pace, and per-TiB cost at review).
+      compounding_growth:              true,
+      compounding_growth_amount:       parseFloat(document.getElementById("param-growth").value) / 100,
+      growth_term:                     "month",
+      migration_unit:                  "time",
+      migration_cost_per_tib:          260,
     };
   };
 
-  // Populate the compounding growth-amount options (0–50% in 5% steps) + toggle.
+  // Populate the Growth (yearly) options (0–50% in 5% steps, default 20%) and keep
+  // the collapsed-header summary in sync when it changes.
   (function(){
-    const gs = document.getElementById("param-comp-growth");
-    if (gs) { gs.innerHTML = ""; for (let p = 0; p <= 50; p += 5) { const o = document.createElement("option"); o.value = p; o.textContent = p + "%"; if (p === 20) o.selected = true; gs.appendChild(o); } }
-    const cb = document.getElementById("param-compounding");
-    const opts = document.getElementById("compounding-opts");
-    if (cb && opts) cb.addEventListener("change", () => { opts.style.display = cb.checked ? "flex" : "none"; });
+    const gs = document.getElementById("param-growth");
+    if (gs) {
+      gs.innerHTML = "";
+      for (let p = 0; p <= 50; p += 5) { const o = document.createElement("option"); o.value = p; o.textContent = p + "%"; if (p === 20) o.selected = true; gs.appendChild(o); }
+      gs.addEventListener("change", updateParamsSummary);
+      updateParamsSummary();   // refresh now that the options exist (initial call ran before populate)
+    }
   })();
 
   // ── Efficiency sweep: derive the list of efficiency % to generate ──
