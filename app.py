@@ -2480,16 +2480,27 @@ def tco_compounding_migration():
     }
     try:
         ev = evaluate_migration(df, ev_params)
-        done_by = {str(g["group"]): int(g.get("migration_done_month", 1) or 1) for g in ev.get("groups", [])}
+        sched_by = {str(g["group"]): (int(g.get("migration_month", 1) or 1),
+                                       int(g.get("migration_done_month", 1) or 1))
+                    for g in ev.get("groups", [])}
     except Exception as exc:
         print(f"compounding-migration: evaluate_migration failed: {exc}")
-        done_by = {}
+        sched_by = {}
     mpp = max(1, 12 // ppy)   # months per compounding period (1 month, 3 quarter)
+    def _toper(mo): return min(horizon, max(1, -(-int(mo) // mpp)))
     for g in groups:
-        dm = done_by.get(str(g["group"]))
-        g["mig_period"] = min(horizon, max(1, -(-int(dm) // mpp))) if dm else None
+        sd = sched_by.get(str(g["group"]))
+        if sd:
+            g["mig_start"] = _toper(sd[0])            # period Everpure begins (migration starts)
+            g["mig_done"]  = _toper(sd[1])            # period Azure MD is dropped after
+            g["mig_period"] = g["mig_start"]          # reported "Migrates" = start
+        else:
+            g["mig_start"] = g["mig_done"] = g["mig_period"] = None
 
     # Walk the horizon. Growth factor at period t (1-based): (1+periodic)^(t-1).
+    # Everpure cost starts the period a group STARTS migrating; Azure MD keeps
+    # running until the period it FINISHES (dropped the period after). During a
+    # multi-period migration both are counted (dual-run).
     for g in groups:
         g["_cum"] = 0.0
         g["_series"] = []
@@ -2500,10 +2511,10 @@ def tco_compounding_migration():
         p_az = p_ev = p_mig = p_cap = p_capmig = base_az = 0.0
         for g in groups:
             cap_t = g["cap_gib"] * f
-            mp = g["mig_period"]
-            az = g["azure"] * f if (mp is None or t <= mp) else 0.0
-            ev = g["everpure"] * f if (mp is not None and t >= mp) else 0.0
-            mig = (cap_t / 1024.0) * cost_per_tib if (mp is not None and t == mp) else 0.0
+            ms, md = g["mig_start"], g["mig_done"]
+            az = g["azure"] * f if (ms is None or t <= md) else 0.0
+            ev = g["everpure"] * f if (ms is not None and t >= ms) else 0.0
+            mig = (cap_t / 1024.0) * cost_per_tib if (ms is not None and t == ms) else 0.0
             tot = az + ev + mig
             g["_cum"] += tot
             g["_series"].append({"period": t, "cap_tib": round(cap_t/1024.0, 3),
@@ -2511,7 +2522,7 @@ def tco_compounding_migration():
                                  "migration": round(mig, 2), "total": round(tot, 2),
                                  "cum_total": round(g["_cum"], 2)})
             p_az += az; p_ev += ev; p_mig += mig; p_cap += cap_t; base_az += g["azure"] * f
-            if mp is not None and t == mp: p_capmig += cap_t
+            if ms is not None and t == ms: p_capmig += cap_t
         p_tot = p_az + p_ev + p_mig
         sav = base_az - p_tot           # vs. staying entirely on Azure (grown)
         cum_total += p_tot; cum_sav += sav; cum_mig += p_mig
@@ -2533,7 +2544,7 @@ def tco_compounding_migration():
                    "everpure_discount": eDisc, "partner_margin": margin,
                    "azure_discount": aDisc, "min_savings": minSav},
         "groups": [{"group": g["group"], "region": g["region"], "cap_gib": round(g["cap_gib"], 2),
-                    "mig_period": g["mig_period"], "included": g["included"],
+                    "mig_period": g["mig_period"], "mig_done": g.get("mig_done"), "included": g["included"],
                     "cum_total": round(g["_cum"], 2), "series": g["_series"]} for g in groups],
         "total_series": total_series,
     }

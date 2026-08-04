@@ -2116,10 +2116,8 @@ body.theme-kyndryl {
                 <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
                   <span style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--accent);">Compounding Growth Migration</span>
                   <span id="tco-compound-params" style="font-size:.66rem;color:var(--muted);"></span>
-                  <span style="flex:1;"></span>
-                  <button class="btn-sm save" id="btn-tco-compound-run" style="padding:8px 16px;white-space:nowrap;">▶ Run compounding migration</button>
                 </div>
-                <div style="font-size:.66rem;color:var(--muted);margin-bottom:8px;">Uses the run's compounding settings. Migration pace comes from the <strong>Months to complete</strong> (Time unit) or <strong>Capacity / month</strong> (Capacity unit) below. Result is stored as a labeled <em>migrated</em> dataset.</div>
+                <div style="font-size:.66rem;color:var(--muted);margin-bottom:8px;">Uses the run's compounding settings and the migration schedule from <strong>Migration Evaluation</strong> below (Months to complete / Capacity per month + order). Click <strong>▶ Evaluate</strong> below to run it — Everpure cost starts the month each group begins migrating. Result is stored as a labeled <em>migrated</em> dataset.</div>
                 <div id="tco-compound-status" style="font-size:.72rem;color:var(--muted);"></div>
                 <div id="tco-compound-headline" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;"></div>
                 <div id="tco-compound-area" style="margin-top:12px;overflow-x:auto;"></div>
@@ -6769,7 +6767,7 @@ function resetGuiToDefaults(delayMs) {
     html += `</tbody></table>`;
     html += `<div style="font-size:.66rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin:14px 0 6px;">By group ${(d.groups || []).length > 200 ? "(top 200 by cost)" : ""}</div>`;
     html += `<table style="border-collapse:collapse;width:100%;font-size:.72rem;"><thead><tr><th style="text-align:left;padding:6px 9px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.58rem;text-transform:uppercase;">Group</th><th style="text-align:left;padding:6px 9px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.58rem;text-transform:uppercase;">Region</th>${th("Orig Cap (TiB)")}${th("Migrates")}${th("Cum Total $")}</tr></thead><tbody>`;
-    (d.groups || []).slice().sort((a, b) => (b.cum_total || 0) - (a.cum_total || 0)).slice(0, 200).forEach(g => { html += `<tr><td style="text-align:left;padding:5px 9px;border-bottom:1px solid var(--border);font-family:var(--font-mono);">${escHtml(String(g.group))}</td><td style="text-align:left;padding:5px 9px;border-bottom:1px solid var(--border);">${escHtml(String(g.region || ""))}</td>${td((g.cap_gib / 1024).toFixed(1))}${td(g.mig_period ? pLabel(g.mig_period) : "—")}${td(money(g.cum_total))}</tr>`; });
+    (d.groups || []).slice().sort((a, b) => (b.cum_total || 0) - (a.cum_total || 0)).slice(0, 200).forEach(g => { html += `<tr><td style="text-align:left;padding:5px 9px;border-bottom:1px solid var(--border);font-family:var(--font-mono);">${escHtml(String(g.group))}</td><td style="text-align:left;padding:5px 9px;border-bottom:1px solid var(--border);">${escHtml(String(g.region || ""))}</td>${td((g.cap_gib / 1024).toFixed(1))}${td(g.mig_period ? (pLabel(g.mig_period) + (g.mig_done && g.mig_done !== g.mig_period ? " → " + pLabel(g.mig_done) : "")) : "—")}${td(money(g.cum_total))}</tr>`; });
     html += `</tbody></table>`;
     $("tco-compound-area").innerHTML = html;
   }
@@ -8750,7 +8748,6 @@ function resetGuiToDefaults(delayMs) {
   $("btn-tco-view-download").addEventListener("click", downloadCurrentView);
   $("btn-tco-downloads-refresh").addEventListener("click", loadDownloads);
   $("btn-tco-evaluate").addEventListener("click", evaluateMigration);
-  $("btn-tco-compound-run").addEventListener("click", runCompoundingMigration);
   $("btn-tco-computes-csv").addEventListener("click", downloadComputeCsv);
   $("btn-tco-excluded-csv").addEventListener("click", downloadExcludedCsv);
   $("tco-mig-months").addEventListener("input", syncMigFromMonths);
