@@ -6710,21 +6710,15 @@ function resetGuiToDefaults(delayMs) {
   // schedule terms drive both. Returns the result (or throws).
   async function computeCompound() {
     const p = selectedRun.params || {};
-    const unit = p.migration_unit || "time";
-    const migValue = (unit === "capacity") ? num($("tco-cap-per-month").value) : num($("tco-mig-months").value);
     const body = {
       group_summary_key: selectedRun.group_summary_key,
       growth: p.compounding_growth_amount || 0,
       growth_term: p.growth_term || "month",
-      migration_unit: unit,
-      migration_value: migValue,
       migration_cost_per_tib: p.migration_cost_per_tib || 260,
       years: p.num_of_years || 5,
-      precedence: migPrecedence, order: migOrder,   // migration order = a re-runnable term
-      everpure_discount: num($("tco-everpure-discount").value) / 100,
-      partner_margin:    num($("tco-partner-margin").value) / 100,
-      azure_discount:    num($("tco-azure-discount").value) / 100,
-      min_savings:       num($("tco-min-savings").value) / 100,
+      // The migration schedule/pace/order comes from the SAME evaluation params the
+      // old migration method uses (capacity/month + precedence + order + commercials).
+      migration_params: migrationParams(),
     };
     const res = await fetch("/api/tco/compounding-migration", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const d = await res.json();

@@ -2440,10 +2440,14 @@ def tco_compounding_migration():
     horizon      = max(1, years * ppy)
     periodic     = (1.0 + yearly) ** (1.0 / ppy) - 1.0
     cost_per_tib = _f(body.get("migration_cost_per_tib"), 260.0)
-    eDisc  = _f(body.get("everpure_discount")); margin = _f(body.get("partner_margin"))
-    aDisc  = _f(body.get("azure_discount"));    minSav = _f(body.get("min_savings"))
-    mig_unit  = "capacity" if str(body.get("migration_unit", "time")).lower().startswith("c") else "time"
-    mig_value = _f(body.get("migration_value"), 0.0)
+    # Migration criteria come from the EXISTING evaluation params (capacity/month,
+    # precedence, order, commercials) so the schedule/pace matches the old method.
+    mparams = body.get("migration_params") or {}
+    eDisc  = _f(mparams.get("everpure_discount",     body.get("everpure_discount")))
+    margin = _f(mparams.get("partner_margin",        body.get("partner_margin")))
+    aDisc  = _f(mparams.get("azure_native_discount", body.get("azure_discount")))
+    minSav = _f(mparams.get("min_savings_rate",      body.get("min_savings")))
+    cap_per_month = _f(mparams.get("capacity_per_month"), 0.0)   # GiB / month
 
     df = _load_df_from_s3(key)
     if df is None:
@@ -2463,37 +2467,27 @@ def tco_compounding_migration():
         groups.append({"group": desc.iloc[i], "region": region.iloc[i], "cap_gib": float(origcap.iloc[i]),
                        "azure": adj_az, "everpure": adj_ev, "rate": rate, "included": rate >= minSav})
 
-    # Migration schedule: only positive-savings (included) groups migrate; excluded
-    # groups stay on Azure forever (and keep growing). Order = precedence tier
-    # (early→middle→late), then explicit order (lower first), then best savings —
-    # matching the Migration view's ordering so changing those terms re-runs it.
-    prec = body.get("precedence", {}) or {}
-    omap = body.get("order", {}) or {}
-    def _rank(g):
-        tier = {"early": 0, "middle": 1, "late": 2}.get(str(prec.get(str(g["group"]), "middle")).lower(), 1)
-        ov = omap.get(str(g["group"]))
-        try: ov = float(ov)
-        except (TypeError, ValueError): ov = 1e9
-        return (tier, ov, -g["rate"])
-    order = sorted([g for g in groups if g["included"]], key=_rank)
-    if mig_unit == "capacity":
-        # Fill each period up to the capacity budget, in rank order.
-        budget = mig_value * 1024.0   # GiB per period
-        per, used = 1, 0.0
-        for g in order:
-            if budget > 0 and used > 0 and used + g["cap_gib"] > budget:
-                per += 1; used = 0.0
-            g["mig_period"] = min(per, horizon); used += g["cap_gib"]
-    else:
-        # Time: complete migration in `mig_value` periods, assigning groups in rank
-        # order (so precedence/order actually change who migrates when).
-        P = int(mig_value) if mig_value >= 1 else len(order)
-        P = max(1, min(P, horizon))
-        n_per = max(1, (len(order) + P - 1) // P)
-        for idx, g in enumerate(order):
-            g["mig_period"] = min(idx // n_per + 1, P)
+    # Migration schedule from the EXISTING capacity-metered evaluator (month-based,
+    # honoring capacity/month + precedence + order). A group's compounding migration
+    # period = the period its migration FINISHES; groups the evaluator excludes
+    # (below the min-savings threshold) never migrate and stay on Azure.
+    ev_params = {
+        "everpure_discount": eDisc, "partner_margin": margin,
+        "azure_native_discount": aDisc, "min_savings_rate": minSav,
+        "capacity_per_month": cap_per_month,
+        "precedence": mparams.get("precedence", {}) or {},
+        "order":      mparams.get("order", {}) or {},
+    }
+    try:
+        ev = evaluate_migration(df, ev_params)
+        done_by = {str(g["group"]): int(g.get("migration_done_month", 1) or 1) for g in ev.get("groups", [])}
+    except Exception as exc:
+        print(f"compounding-migration: evaluate_migration failed: {exc}")
+        done_by = {}
+    mpp = max(1, 12 // ppy)   # months per compounding period (1 month, 3 quarter)
     for g in groups:
-        g.setdefault("mig_period", None)   # excluded groups never migrate
+        dm = done_by.get(str(g["group"]))
+        g["mig_period"] = min(horizon, max(1, -(-int(dm) // mpp))) if dm else None
 
     # Walk the horizon. Growth factor at period t (1-based): (1+periodic)^(t-1).
     for g in groups:
@@ -2534,7 +2528,7 @@ def tco_compounding_migration():
         "ok": True,
         "params": {"growth": yearly, "growth_term": term, "periods_per_year": ppy,
                    "periodic_rate": round(periodic, 6), "years": years, "horizon": horizon,
-                   "migration_unit": mig_unit, "migration_value": mig_value,
+                   "capacity_per_month_tib": round(cap_per_month / 1024.0, 3),
                    "migration_cost_per_tib": cost_per_tib,
                    "everpure_discount": eDisc, "partner_margin": margin,
                    "azure_discount": aDisc, "min_savings": minSav},
