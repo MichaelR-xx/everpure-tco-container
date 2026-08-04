@@ -8474,18 +8474,34 @@ function resetGuiToDefaults(delayMs) {
 
   // Add/refresh a one-time "Migration Cost" tile in the Graphs summary when a
   // compounding migration is active; remove it otherwise. Idempotent.
+  //
+  // The one-time migration cost is a compounding-run concept, so for any run with
+  // compounding growth enabled we surface it in the Graphs summary: a "Migration
+  // Cost (one-time)" tile plus Everpure/savings totals that fold it into the
+  // N-year figures. Steady-state basis (original capacity × $/TiB), consistent
+  // with the other N-year totals shown in this summary.
   function updateGraphsMigrationTile() {
     const gk = $("tco-graphs-kpis"); if (!gk) return;
-    const old = gk.querySelector("[data-mig-tile]"); if (old) old.remove();
-    if (projCompound && lastCompound) {
-      const ts = lastCompound.total_series || [];
-      const mc = ts.length ? (ts[ts.length - 1].cum_migration || 0) : 0;
-      gk.insertAdjacentHTML("beforeend",
-        `<div data-mig-tile style="display:flex;flex-direction:column;gap:3px;">
-           <span style="font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Migration Cost (one-time)</span>
-           <span style="font-size:1.05rem;font-weight:700;font-family:var(--font-mono);color:var(--warning,#d97706);">$${Math.round(mc).toLocaleString()}</span>
-         </div>`);
-    }
+    gk.querySelectorAll("[data-mig-tile]").forEach(e => e.remove());
+    const rp = (selectedRun && selectedRun.params) || {};
+    if (!rp.compounding_growth || !lastTot) return;
+    const rate    = num(rp.migration_cost_per_tib) || 260;      // $/TiB
+    const years   = parseInt(rp.num_of_years, 10) || 5;
+    const months  = lastMonths || 12;
+    const migCost = (lastTot.capOrig || 0) / 1024 * rate;       // one-time
+    const everN   = (lastTot.everpure || 0) * months * years;   // N-year Everpure (recurring)
+    const azureN  = (lastTot.azure    || 0) * months * years;   // N-year Azure baseline
+    const everInclMig = everN + migCost;
+    const savInclMig  = azureN - everInclMig;
+    const tile = (label, val, color) =>
+      `<div data-mig-tile style="display:flex;flex-direction:column;gap:3px;">
+         <span style="font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">${label}</span>
+         <span style="font-size:1.05rem;font-weight:700;font-family:var(--font-mono);color:${color || "var(--text)"};">$${Math.round(val).toLocaleString()}</span>
+       </div>`;
+    gk.insertAdjacentHTML("beforeend",
+      tile("Migration Cost (one-time)", migCost, "var(--warning,#d97706)") +
+      tile(`Everpure Total incl. Migration (${years}yr)`, everInclMig, "var(--accent)") +
+      tile(`Total Savings incl. Migration (${years}yr)`, savInclMig, savInclMig >= 0 ? "var(--success,#7ab87a)" : "var(--danger)"));
   }
 
   function updateProjection() {
