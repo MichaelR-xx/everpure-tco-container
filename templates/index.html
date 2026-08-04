@@ -2015,7 +2015,7 @@ body.theme-kyndryl {
             <div id="tco-view-graphs" style="display:none;flex-direction:column;gap:20px;">
               <!-- TCO summary (mirrors Overall Results) at the top of the graph view -->
               <div class="card" style="padding:16px 20px;">
-                <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:12px;">TCO Summary <span id="tco-graphs-included-note" style="text-transform:none;letter-spacing:0;font-weight:400;"></span></div>
+                <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:12px;"><span id="tco-graphs-summary-title">TCO Summary</span> <span id="tco-graphs-included-note" style="text-transform:none;letter-spacing:0;font-weight:400;"></span></div>
                 <div id="tco-graphs-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;"></div>
               </div>
               <!-- current-state cost comparison charts -->
@@ -7084,8 +7084,12 @@ function resetGuiToDefaults(delayMs) {
     // Mirror the summary at the top of the Graphs view (also captured in the PDF),
     // but as N-year totals with Year 1 in parentheses.
     const gk = $("tco-graphs-kpis"); if (gk) gk.innerHTML = buildKpis(yvYear);
+    const gt = $("tco-graphs-summary-title"); if (gt) gt.textContent = `${years}-Year TCO Summary`;
     const gn = $("tco-graphs-included-note");
     if (gn) gn.textContent = note + ` · costs are ${years}-year totals (Year 1 in parentheses)`;
+    // A compounding migration (shown in the Growth Projection) also surfaces its
+    // one-time migration cost here (self-clears when no compounding is active).
+    updateGraphsMigrationTile();
   }
 
   function renderData(computed, tot, months) {
@@ -8450,17 +8454,38 @@ function resetGuiToDefaults(delayMs) {
       savings: x.savings,
       savings_pct: x.baseline_azure ? Math.round(x.savings / x.baseline_azure * 10000) / 100 : 0,
       cumulative_savings: x.cum_savings,
-      everpure_license: x.everpure, everpure_infra: x.migration,
+      everpure_license: x.everpure, everpure_infra: 0,
+      migration: x.migration,                  // one-time migration cost this period
       everpure_capacity: 0, everpure_throughput: 0, unmig_azure: x.azure,
       licensed_capacity: x.cap_tib,            // TiB
     }));
+    const ts = d.total_series || [];
+    const totalMig = ts.length ? (ts[ts.length - 1].cum_migration || 0) : 0;
     const migrated = (d.groups || []).filter(g => g.mig_period).length;
     renderProjection(series, {
       years: d.params.years,
       frequency: d.params.growth_term === "quarter" ? "quarterly" : "monthly",
       yearly_growth: d.params.growth, included: migrated,
       isAzn: false, migration: d.label || "compounding migration",
+      hasMigrationCost: true, migrationCost: totalMig,
     });
+    updateGraphsMigrationTile();   // surface the migration cost in the summary too
+  }
+
+  // Add/refresh a one-time "Migration Cost" tile in the Graphs summary when a
+  // compounding migration is active; remove it otherwise. Idempotent.
+  function updateGraphsMigrationTile() {
+    const gk = $("tco-graphs-kpis"); if (!gk) return;
+    const old = gk.querySelector("[data-mig-tile]"); if (old) old.remove();
+    if (projCompound && lastCompound) {
+      const ts = lastCompound.total_series || [];
+      const mc = ts.length ? (ts[ts.length - 1].cum_migration || 0) : 0;
+      gk.insertAdjacentHTML("beforeend",
+        `<div data-mig-tile style="display:flex;flex-direction:column;gap:3px;">
+           <span style="font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Migration Cost (one-time)</span>
+           <span style="font-size:1.05rem;font-weight:700;font-family:var(--font-mono);color:var(--warning,#d97706);">$${Math.round(mc).toLocaleString()}</span>
+         </div>`);
+    }
   }
 
   function updateProjection() {
@@ -8637,7 +8662,8 @@ function resetGuiToDefaults(delayMs) {
       `<strong>${meta.included} included group(s)</strong> (updates with the filters above).` +
       (meta.migration
         ? ` · <strong style="color:var(--accent,#7ab87a);">Migration plan: ${escHtml(meta.migration)}</strong> — Everpure ramps with migration, unmigrated capacity stays on Azure, and each group grows only after it finishes migrating.`
-        : "");
+        : "") +
+      (meta.migrationCost ? ` · <strong style="color:var(--warning,#d97706);">Total migration cost: ${fmtUsd(meta.migrationCost)}</strong>` : "");
     if (!series.length || !meta.included) {
       $("tco-proj-graph").innerHTML = "";
       $("tco-proj-area").innerHTML = `<div style="color:var(--muted);font-size:.8rem;">No included groups — adjust the minimum savings rate above.</div>`;
@@ -8718,6 +8744,7 @@ function resetGuiToDefaults(delayMs) {
       ? [["Everpure Capacity $", "everpure_capacity"], ["Everpure Throughput $", "everpure_throughput"]]
       : [["Everpure License $", "everpure_license"], ["Everpure Infra $", "everpure_infra"]];
     if (mig) breakdown.push(["Unmigrated Azure $", "unmig_azure"]);
+    if (meta.hasMigrationCost) breakdown.push(["Migration $", "migration"]);
     const totalHead = mig ? "Total (Everpure + Azure) $" : "Everpure Total $";
     const head = ["Period","Label",totalHead, ...breakdown.map(b => b[0]),
                   "Azure Native $","Savings $","Savings %","Cumulative Savings $","Licensed Cap (GiB)"];
