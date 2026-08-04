@@ -8475,10 +8475,11 @@ function resetGuiToDefaults(delayMs) {
   // Add/refresh a one-time "Migration Cost" tile in the Graphs summary when a
   // compounding migration is active; remove it otherwise. Idempotent.
   //
-  // The one-time migration cost is a compounding-run concept, so for any run with
-  // compounding growth enabled we surface it in the Graphs summary: a "Migration
-  // Cost (one-time)" tile plus Everpure/savings totals that fold it into the
-  // N-year figures.
+  // The one-time migration cost is only shown once a migration plan has been ADDED
+  // in the Graphs view (the compounding migration imported — projCompound). By
+  // default the Graphs summary carries NO migration costs. When a plan is added we
+  // surface it: a "Migration Cost (one-time)" tile plus Everpure/savings totals
+  // that fold it into the N-year figures.
   //
   // The migration total MATCHES the Growth Projection's — i.e. the compounding
   // model's cumulative migration cost (capacity grown up to each group's
@@ -8489,7 +8490,9 @@ function resetGuiToDefaults(delayMs) {
     const gk = $("tco-graphs-kpis"); if (!gk) return;
     const rp = (selectedRun && selectedRun.params) || {};
     const clear = () => gk.querySelectorAll("[data-mig-tile]").forEach(e => e.remove());
-    if (!rp.compounding_growth || !lastTot) { clear(); return; }
+    // Default: no migration costs. Only include them when a (compounding) migration
+    // plan has actually been added in the Graphs view.
+    if (!projCompound || !rp.compounding_growth || !lastTot) { clear(); return; }
     const rate   = num(rp.migration_cost_per_tib) || 260;      // $/TiB
     const years  = parseInt(rp.num_of_years, 10) || 5;
     const months = lastMonths || 12;
