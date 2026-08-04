@@ -970,6 +970,48 @@ body.theme-kyndryl {
         <p>Assemble a synthetic workload from reusable models — by instance count or by target capacity — then save it against a customer. Saving parses the dataset and makes it available for Run Analysis.</p>
       </div>
 
+      <div class="card" id="wl-sizing-mode-card">
+        <h3 style="margin-top:0;">Size by capacity <span class="muted" style="font-weight:400;font-size:.8rem;">— applies to every capacity input on this page for this session</span></h3>
+        <div class="wl-form-row" style="align-items:flex-end;">
+          <label>Capacity basis
+            <select id="wl-size-mode">
+              <option value="original">Original capacity</option>
+              <option value="licensed">Licensed capacity (Everpure)</option>
+            </select>
+          </label>
+          <label id="wl-drr-wrap" style="display:none;">DRR (data reduction, x:1)
+            <input id="wl-drr" type="number" min="1" step="0.1" value="4">
+          </label>
+          <label id="wl-eff-wrap" style="display:none;">Efficiency rate (%)
+            <input id="wl-eff" type="number" min="1" max="100" step="1" value="65">
+          </label>
+        </div>
+        <div id="wl-size-mode-note" class="muted" style="font-size:.78rem;margin-top:8px;"></div>
+      </div>
+
+      <div class="card" id="wl-simple-card">
+        <h3 style="margin-top:0;">Simple sizing <span class="muted" style="font-weight:400;font-size:.8rem;">— size a set of identical volumes, snapped to valid Azure disk sizes, then add them</span></h3>
+        <div class="wl-form-row" style="align-items:flex-end;">
+          <label>Capacity (TiB)<input id="wl-simple-cap" type="number" min="0" step="0.1" value="10"></label>
+          <label>Disk type
+            <select id="wl-simple-type">
+              <option value="Premium_LRS">Premium_LRS (v1)</option>
+              <option value="PremiumV2_LRS">PremiumV2_LRS (v2)</option>
+              <option value="UltraSSD_LRS">UltraSSD_LRS</option>
+              <option value="StandardSSD_LRS">StandardSSD_LRS</option>
+              <option value="Standard_LRS">Standard_LRS</option>
+            </select>
+          </label>
+          <label>Number of volumes<input id="wl-simple-vols" type="number" min="1" step="1" value="10"></label>
+        </div>
+        <div id="wl-simple-out" style="margin-top:10px;font-size:.85rem;"></div>
+        <div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <button class="btn-sm save" id="wl-simple-add">＋ Add to workload</button>
+          <span id="wl-simple-msg" class="muted" style="font-size:.78rem;"></span>
+        </div>
+        <p class="muted" style="font-size:.75rem;margin-top:8px;">Per-volume size = capacity ÷ volumes, rounded up to the nearest valid size for the chosen type (max 32&nbsp;TiB for tiered types, 64&nbsp;TiB for PremiumV2/Ultra). Placement uses the selection below.</p>
+      </div>
+
       <div class="card">
         <h3 style="margin-top:0;">Start from a saved workload <span class="muted" style="font-weight:400;font-size:.8rem;">— optional; reusable across customers</span></h3>
         <div class="wl-form-row" style="align-items:flex-end;">
@@ -2660,7 +2702,7 @@ Cap ${Number(m.capacity_gib).toLocaleString()} GiB (${m.capacity_tib} TiB)</div>
   function wlResolve(item){
     const m = wlModelsByKey[item.model_key]; if(!m) return {count:0,cap:0};
     const capPer = m.capacity_gib;
-    if(item.mode==="capacity"){ const count=Math.floor((item.capacity_tib*1024)/capPer); return {count,cap:count*capPer}; }
+    if(item.mode==="capacity"){ const targetGiB = wlToOriginalGiB(item.capacity_tib*1024); const count=Math.floor(targetGiB/capPer); return {count,cap:count*capPer}; }
     return {count:item.count, cap:item.count*capPer};
   }
 
@@ -2773,6 +2815,113 @@ Cap ${Number(m.capacity_gib).toLocaleString()} GiB (${m.capacity_tib} TiB)</div>
     }catch(e){ msg.className="msg error"; msg.textContent=e.message; }
     finally{ btn.disabled=false; btn.textContent=prev; }
   };
+
+  /* ── Global "size by capacity" mode (Original vs Licensed) ──────────────
+     Applies to every capacity input on this page for the session; persisted to
+     localStorage. Licensed → original = licensed × DRR ÷ efficiency. */
+  let wlSizeMode = "original", wlDrr = 4, wlEff = 65;
+  try {
+    const sm = localStorage.getItem("wlSizeMode"); if (sm === "licensed" || sm === "original") wlSizeMode = sm;
+    const d = parseFloat(localStorage.getItem("wlDrr")); if (d > 0) wlDrr = d;
+    const e = parseFloat(localStorage.getItem("wlEff")); if (e > 0) wlEff = e;
+  } catch(e) {}
+
+  function wlToOriginalGiB(gib) {
+    if (wlSizeMode === "licensed") {
+      const eff = (wlEff > 0 ? wlEff : 65) / 100;
+      const drr = (wlDrr > 0 ? wlDrr : 4);
+      return gib * drr / eff;
+    }
+    return gib;
+  }
+  function wlPersistSizeMode() {
+    try { localStorage.setItem("wlSizeMode", wlSizeMode); localStorage.setItem("wlDrr", String(wlDrr)); localStorage.setItem("wlEff", String(wlEff)); } catch(e) {}
+  }
+  function wlSyncSizeModeUI() {
+    const lic = wlSizeMode === "licensed";
+    if ($b("wl-size-mode")) $b("wl-size-mode").value = wlSizeMode;
+    if ($b("wl-drr-wrap")) $b("wl-drr-wrap").style.display = lic ? "" : "none";
+    if ($b("wl-eff-wrap")) $b("wl-eff-wrap").style.display = lic ? "" : "none";
+    if ($b("wl-drr")) $b("wl-drr").value = wlDrr;
+    if ($b("wl-eff")) $b("wl-eff").value = wlEff;
+    const note = $b("wl-size-mode-note");
+    if (note) note.innerHTML = lic
+      ? "Capacity you enter is <strong>Everpure licensed</strong> capacity; original provisioned size = licensed × DRR ÷ efficiency "
+        + "(e.g. 10 TiB × " + wlDrr + " ÷ " + (wlEff/100).toFixed(2) + " = " + (10*wlDrr/((wlEff>0?wlEff:65)/100)).toFixed(1) + " TiB original)."
+      : "Capacity you enter is the <strong>original provisioned</strong> disk capacity (current behavior).";
+  }
+  (function(){
+    const ms = $b("wl-size-mode");
+    if (ms) ms.addEventListener("change", () => { wlSizeMode = ms.value; wlSyncSizeModeUI(); wlPersistSizeMode(); wlRenderCart(); wlSimpleCompute(); });
+    const dr = $b("wl-drr"), ef = $b("wl-eff");
+    if (dr) dr.addEventListener("input", () => { wlDrr = parseFloat(dr.value) || 4; wlPersistSizeMode(); wlSyncSizeModeUI(); wlRenderCart(); wlSimpleCompute(); });
+    if (ef) ef.addEventListener("input", () => { wlEff = parseFloat(ef.value) || 65; wlPersistSizeMode(); wlSyncSizeModeUI(); wlRenderCart(); wlSimpleCompute(); });
+  })();
+
+  /* ── Simple sizing: valid Azure disk sizes (GiB) per type, mirroring the
+     server's tier binning; snap to the smallest valid size >= target. ── */
+  const WL_DISK_SIZES = {
+    Premium_LRS:     [4,8,16,32,64,128,256,512,1024,2048,4096,8192,16384,32768],
+    StandardSSD_LRS: [4,8,16,32,64,128,256,512,1024,2048,4096,8192,16384,32768],
+    Standard_LRS:    [32,64,128,256,512,1024,2048,4096,8192,16384,32768],
+    UltraSSD_LRS:    (function(){ const a=[4,8,16,32,64,128,256,512,1024]; let n=1024; while(n<65536){ n+=1024; a.push(n); } return a; })(),
+    PremiumV2_LRS:   null,   // continuous 1..65536 GiB
+  };
+  const WL_DISK_MAX = { Premium_LRS:32768, StandardSSD_LRS:32768, Standard_LRS:32768, UltraSSD_LRS:65536, PremiumV2_LRS:65536 };
+  function wlSnapDiskSize(type, gib) {
+    const max = WL_DISK_MAX[type] || 65536;
+    if (gib > max) return null;
+    const sizes = WL_DISK_SIZES[type];
+    if (!sizes) return Math.max(1, Math.ceil(gib));     // PremiumV2: any integer size
+    for (const s of sizes) if (s >= gib) return s;
+    return null;
+  }
+  function wlSimpleCompute() {
+    const capEl=$b("wl-simple-cap"), typeEl=$b("wl-simple-type"), volEl=$b("wl-simple-vols"), out=$b("wl-simple-out");
+    if (!capEl || !out) return null;
+    const capTiB = parseFloat(capEl.value), vols = parseInt(volEl.value,10), type = typeEl.value;
+    if (!(capTiB>0) || !(vols>=1)) { out.innerHTML = '<span class="muted">Enter a capacity and number of volumes.</span>'; return null; }
+    const origGiB = wlToOriginalGiB(capTiB*1024);
+    const perSize = wlSnapDiskSize(type, origGiB/vols);
+    if (perSize == null) {
+      out.innerHTML = '<span style="color:var(--danger,#d64545);">⚠️ Each volume would need ~'+((origGiB/vols)/1024).toFixed(2)+' TiB, exceeding '+wlEsc(type)+"'s max of "+(WL_DISK_MAX[type]/1024)+' TiB. Increase the number of volumes.</span>';
+      return null;
+    }
+    const totalGiB = perSize * vols;
+    const basis = (wlSizeMode==="licensed") ? ' <span class="muted">(from '+capTiB+' TiB licensed → '+(origGiB/1024).toFixed(2)+' TiB original)</span>' : '';
+    const rounded = (totalGiB>origGiB) ? ' <span class="muted">— rounded up to a valid disk size</span>' : '';
+    out.innerHTML = 'Each volume: <strong>'+perSize.toLocaleString()+' GiB</strong> ('+(perSize/1024).toFixed(2)+' TiB) · <strong>'+vols
+      +'</strong> × <strong>'+wlEsc(type)+'</strong> · provisioned total <strong>'+totalGiB.toLocaleString()+' GiB</strong> ('+(totalGiB/1024).toFixed(2)+' TiB)'+basis+rounded;
+    return { type, perSize, vols, totalGiB };
+  }
+  async function wlSimpleAdd() {
+    const r = wlSimpleCompute();
+    const msg = $b("wl-simple-msg");
+    if (!r) { if (msg) { msg.style.color="var(--danger,#d64545)"; msg.textContent="Fix the sizing above first."; } return; }
+    if (msg) { msg.style.color=""; msg.textContent="Adding…"; }
+    // Create (or reuse) a 1-drive model of this size+type, then add N instances.
+    const modelName = "sizing_"+r.type+"_"+r.perSize+"GiB";
+    try {
+      await fetch("/api/models/user", { method:"POST", headers:{"Content-Type":"application/json"}, credentials:"same-origin",
+        body: JSON.stringify({ name: modelName, drive_config:[{drive_type:r.type, capacityGB:r.perSize, root:false}], vm_size:"", min_ec_sku:"" }) });
+    } catch(e) { /* may already exist — fall through and reuse */ }
+    await wlLoadModels();
+    const m = wlModels.find(x => x.label===modelName)
+           || wlModels.find(x => (x.drive_config||[]).length===1 && x.drive_config[0].drive_type===r.type && Number(x.drive_config[0].capacityGB)===r.perSize);
+    if (!m) { if (msg) { msg.style.color="var(--danger,#d64545)"; msg.textContent="Could not create the sizing model."; } return; }
+    const p = wlPlacement();
+    wlCart.push({ model_key:m.key, region:p.region, zone:p.zone, vnet:p.vnet, mode:"count", count:r.vols });
+    wlRenderCart();
+    if (msg) { msg.style.color=""; msg.textContent = "Added "+r.vols+" × "+r.perSize+" GiB "+r.type+"."; }
+  }
+  (function(){
+    ["wl-simple-cap","wl-simple-type","wl-simple-vols"].forEach(id=>{ const el=$b(id); if(el) el.addEventListener("input", wlSimpleCompute); });
+    const add=$b("wl-simple-add"); if (add) add.addEventListener("click", wlSimpleAdd);
+  })();
+
+  // Initial paint of the sizing-mode UI + simple-sizing preview.
+  wlSyncSizeModeUI();
+  wlSimpleCompute();
 })();
 
 /* ════════════════════════════════════════════════════════
