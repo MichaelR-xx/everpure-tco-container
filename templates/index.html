@@ -2083,18 +2083,6 @@ body.theme-kyndryl {
 
             <!-- ── MIGRATION VIEW: capacity-metered migration schedule ─── -->
             <div id="tco-view-migration" style="display:none;flex-direction:column;gap:20px;">
-              <!-- Compounding growth migration (shown only for runs generated with it enabled) -->
-              <div class="card" id="tco-compound-card" style="padding:16px 20px;display:none;border:1px solid var(--accent);">
-                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
-                  <span style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--accent);">Compounding Growth Migration</span>
-                  <span id="tco-compound-params" style="font-size:.66rem;color:var(--muted);"></span>
-                </div>
-                <div style="font-size:.66rem;color:var(--muted);margin-bottom:8px;">Uses the run's compounding settings and the migration schedule from <strong>Migration Evaluation</strong> below (Months to complete / Capacity per month + order). Click <strong>▶ Evaluate</strong> below to run it — Everpure cost starts the month each group begins migrating. Result is stored as a labeled <em>migrated</em> dataset.</div>
-                <div id="tco-compound-status" style="font-size:.72rem;color:var(--muted);"></div>
-                <div id="tco-compound-headline" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;"></div>
-                <div id="tco-compound-area" style="margin-top:12px;overflow-x:auto;"></div>
-              </div>
-
               <div class="card" style="padding:16px 20px;">
                 <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px;">
                   <span style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Migration Evaluation</span>
@@ -6108,7 +6096,6 @@ function resetGuiToDefaults(delayMs) {
     selectedKey = r.group_summary_key;
     selectedRun = r;
     updateEffSelector(r);    // show/refresh the efficiency-sibling selector
-    updateCompoundCard();    // show/hide the compounding-migration card for this run
     updateMigPeriodLabels(); // relabel the migration pace fields to the run's growth period
     evalMonthByGroup = {};   // reset migration months when switching runs
     migPrecedence = {}; migOrder = {};   // reset per-group migration order
@@ -6786,17 +6773,6 @@ function resetGuiToDefaults(delayMs) {
   }
 
   // ── Compounding growth migration (Migration view) ──────────────────────────
-  function updateCompoundCard() {
-    const card = $("tco-compound-card"); if (!card) return;
-    const p = (selectedRun && selectedRun.params) || {};
-    const on = !!p.compounding_growth;
-    card.style.display = on ? "" : "none";
-    if (on) {
-      const pct = Math.round((p.compounding_growth_amount || 0) * 100);
-      $("tco-compound-params").textContent =
-        `${pct}%/yr · ${p.growth_term || "month"} · ${p.migration_unit || "time"} pace · $${p.migration_cost_per_tib || 260}/TiB`;
-    }
-  }
   // Build the compounding-migration request from the run's compounding settings +
   // the CURRENT migration terms (months/capacity + precedence/order) + commercials,
   // and run it. Shared by the Migration view and the Graphs-view import so the
@@ -6824,16 +6800,17 @@ function resetGuiToDefaults(delayMs) {
   }
   async function runCompoundingMigration() {
     if (!selectedRun) return;
-    const st = $("tco-compound-status"), btn = $("btn-tco-compound-run");
-    st.textContent = "Running compounding migration…"; if (btn) btn.disabled = true;
+    const summaryEl = $("tco-eval-summary"), area = $("tco-eval-area");
+    const btn = $("btn-tco-evaluate");
+    summaryEl.textContent = "Evaluating…"; if (btn) btn.disabled = true;
     try {
       const d = await computeCompound();
-      renderCompounding(d);
-      st.textContent = (d.saved_key ? ("✓ Stored as “" + (d.label || "migrated dataset") + "”.") : "Computed (not stored).")
+      renderCompounding(d);   // headline + tables into tco-eval-area
+      summaryEl.innerHTML = (d.saved_key ? ("✓ Stored as “" + escHtml(d.label || "migrated dataset") + "”.") : "Computed (not stored).")
         + " — available to import in the Graphs view.";
       // If the Graphs view is currently showing the compounding projection, refresh it.
       if (projCompound) updateProjection();
-    } catch(e) { st.textContent = "Error: " + e.message; $("tco-compound-area").innerHTML = ""; $("tco-compound-headline").innerHTML = ""; }
+    } catch(e) { summaryEl.textContent = ""; area.innerHTML = `<div style="color:var(--danger);font-size:.8rem;">${escHtml(e.message)}</div>`; }
     finally { if (btn) btn.disabled = false; }
   }
   function renderCompounding(d) {
@@ -6847,12 +6824,14 @@ function resetGuiToDefaults(delayMs) {
     let be = null; for (const x of ts) { if (x.cum_savings >= 0) { be = x.period; break; } }
     const migrated = (d.groups || []).filter(g => g.mig_period).length;
     const card = (l, v, s, c) => `<div class="card" style="padding:12px 14px;min-width:150px;flex:1;"><div style="font-size:.6rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">${l}</div><div style="font-size:1.1rem;font-weight:800;color:${c || 'var(--text)'};font-family:var(--font-mono);margin-top:3px;">${v}</div><div style="font-size:.58rem;color:var(--muted);margin-top:2px;">${s}</div></div>`;
-    $("tco-compound-headline").innerHTML =
-      card(`${d.params.horizon}-${d.params.growth_term} cumulative`, money(last.cum_total || 0), "total migrated-model cost")
+    const headlineHtml =
+      `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">`
+      + card(`${d.params.horizon}-${d.params.growth_term} cumulative`, money(last.cum_total || 0), "total migrated-model cost")
       + card("Cumulative savings", money(last.cum_savings || 0), "vs. all-Azure grown", (last.cum_savings >= 0 ? "var(--accent)" : "var(--warning,#d97706)"))
       + card("Total migration cost", money(last.cum_migration || 0), `@ $${d.params.migration_cost_per_tib}/TiB`)
       + card("Breakeven", be ? pLabel(be) : "—", be ? "cum savings ≥ 0" : "not reached")
-      + card("Groups migrating", migrated + " / " + (d.groups || []).length, "included groups migrate");
+      + card("Groups migrating", migrated + " / " + (d.groups || []).length, "included groups migrate")
+      + `</div>`;
     const th = t => `<th style="text-align:right;padding:6px 9px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.58rem;text-transform:uppercase;white-space:nowrap;">${t}</th>`;
     const thT = (t, tip) => `<th title="${tip}" style="text-align:right;padding:6px 9px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.58rem;text-transform:uppercase;white-space:nowrap;cursor:help;">${t}</th>`;
     const td = (v, e) => `<td style="text-align:right;padding:5px 9px;border-bottom:1px solid var(--border);font-family:var(--font-mono);white-space:nowrap;${e || ''}">${v}</td>`;
@@ -6867,7 +6846,7 @@ function resetGuiToDefaults(delayMs) {
     html += `<table style="border-collapse:collapse;width:100%;font-size:.72rem;"><thead><tr><th style="text-align:left;padding:6px 9px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.58rem;text-transform:uppercase;">Group</th><th style="text-align:left;padding:6px 9px;border-bottom:1px solid var(--border);color:var(--muted);font-size:.58rem;text-transform:uppercase;">Region</th>${th("Orig Cap (TiB)")}${th("Migrates")}${th("Cum Total $")}</tr></thead><tbody>`;
     (d.groups || []).slice().sort((a, b) => (b.cum_total || 0) - (a.cum_total || 0)).slice(0, 200).forEach(g => { html += `<tr><td style="text-align:left;padding:5px 9px;border-bottom:1px solid var(--border);font-family:var(--font-mono);">${escHtml(String(g.group))}</td><td style="text-align:left;padding:5px 9px;border-bottom:1px solid var(--border);">${escHtml(String(g.region || ""))}</td>${td((g.cap_gib / 1024).toFixed(1))}${td(g.mig_period ? (pLabel(g.mig_period) + (g.mig_done && g.mig_done !== g.mig_period ? " → " + pLabel(g.mig_done) : "")) : "—")}${td(money(g.cum_total))}</tr>`; });
     html += `</tbody></table>`;
-    $("tco-compound-area").innerHTML = html;
+    $("tco-eval-area").innerHTML = headlineHtml + html;
   }
 
   async function loadMigrationPlans() {
@@ -7508,7 +7487,7 @@ function resetGuiToDefaults(delayMs) {
     if (mode === "parsed") populateParsedGroups();
     if (mode === "advanced") loadDfGroups();
     if (mode === "downloads") loadDownloads();
-    if (mode === "migration") { renderMigrationControls(); loadMigrationPlans(); updateCompoundCard(); updateMigPeriodLabels(); }
+    if (mode === "migration") { renderMigrationControls(); loadMigrationPlans(); updateMigPeriodLabels(); }
     if (mode === "ramp") { loadRampPlanOptions(); renderRamp(); }
     if (mode === "consolidation") renderConsolNegList();
     // Refresh the growth-view plan dropdown each time so plans saved/deleted in
