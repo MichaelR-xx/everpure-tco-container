@@ -2517,12 +2517,30 @@ def tco_compounding_migration():
     for g in groups:
         g["_cum"] = 0.0
         g["_series"] = []
+
+    # ── Capacity-location ramp (ORIGINAL capacity, NO growth) ──
+    # These columns track WHERE the selected (original) capacity lives, paced by the
+    # migration target — independent of the per-group grown cost schedule above.
+    #   In Everpure: fills at the target capacity/period starting the period migration
+    #                begins, up to the total migrating capacity.
+    #   On Azure MD: starts at the full total and drains at the target capacity/period,
+    #                one period AFTER Everpure fills (data lives on both mid-copy).
+    # Excluded groups (never migrated) stay on Azure for the whole horizon.
+    target_gib = (cap_per_month * mpp) if cap_per_month > 0 else 0.0     # migrated per period
+    mig_starts = [g["mig_start"] for g in groups if g["mig_start"] is not None]
+    ms0    = min(mig_starts) if mig_starts else 1                        # first migration period
+    T_mig  = sum(g["cap_gib"] for g in groups if g["mig_start"] is not None)
+    T_stay = sum(g["cap_gib"] for g in groups if g["mig_start"] is None)
+    if target_gib <= 0:
+        target_gib = T_mig or 1.0                                        # no pace -> all in one period
+    def _migrated_by(period):
+        return 0.0 if period < ms0 else min(T_mig, target_gib * (period - ms0 + 1))
+
     total_series = []
     cum_total = cum_sav = cum_mig = 0.0
     for t in range(1, horizon + 1):
         f = (1.0 + periodic) ** (t - 1)
         p_az = p_ev = p_mig = p_cap = p_capmig = base_az = 0.0
-        p_cap_az = p_cap_ev = 0.0     # ORIGINAL capacity by location this period
         for g in groups:
             cap_t = g["cap_gib"] * f                       # grown ORIGINAL capacity (GiB)
             ms, md = g["mig_start"], g["mig_done"]
@@ -2530,15 +2548,8 @@ def tco_compounding_migration():
             ev = g["everpure"] * f if (ms is not None and t >= ms) else 0.0
             mig = (cap_t / 1024.0) * cost_per_tib if (ms is not None and t == ms) else 0.0
             tot = az + ev + mig
-            # Capacity location: a group's original capacity lives in Everpure cloud
-            # once its migration has started (t >= ms), otherwise on Azure managed disk.
-            in_everpure = (ms is not None and t >= ms)
-            if in_everpure: p_cap_ev += cap_t
-            else:           p_cap_az += cap_t
             g["_cum"] += tot
             g["_series"].append({"period": t, "cap_tib": round(cap_t/1024.0, 3),
-                                 "cap_azure_tib": round(0.0 if in_everpure else cap_t/1024.0, 3),
-                                 "cap_everpure_tib": round(cap_t/1024.0 if in_everpure else 0.0, 3),
                                  "azure": round(az, 2), "everpure": round(ev, 2),
                                  "migration": round(mig, 2), "total": round(tot, 2),
                                  "cum_total": round(g["_cum"], 2)})
@@ -2547,13 +2558,15 @@ def tco_compounding_migration():
         p_tot = p_az + p_ev + p_mig
         sav = base_az - p_tot           # vs. staying entirely on Azure (grown)
         cum_total += p_tot; cum_sav += sav; cum_mig += p_mig
+        cap_ev_gib = _migrated_by(t)                             # Everpure fills at the pace
+        cap_az_gib = T_stay + (T_mig - _migrated_by(t - 1))      # Azure drains one period later
         total_series.append({
             "period": t, "azure": round(p_az, 2), "everpure": round(p_ev, 2),
             "migration": round(p_mig, 2), "total": round(p_tot, 2),
             "baseline_azure": round(base_az, 2), "savings": round(sav, 2),
             "cap_tib": round(p_cap/1024.0, 2), "cap_migrated_tib": round(p_capmig/1024.0, 3),
-            "cap_azure_tib": round(p_cap_az/1024.0, 2),        # ORIGINAL cap still on Azure MD
-            "cap_everpure_tib": round(p_cap_ev/1024.0, 2),     # ORIGINAL cap moved to Everpure
+            "cap_azure_tib": round(cap_az_gib/1024.0, 2),      # ORIGINAL cap still on Azure MD
+            "cap_everpure_tib": round(cap_ev_gib/1024.0, 2),   # ORIGINAL cap migrated to Everpure
             "cum_total": round(cum_total, 2), "cum_savings": round(cum_sav, 2),
             "cum_migration": round(cum_mig, 2),
         })
