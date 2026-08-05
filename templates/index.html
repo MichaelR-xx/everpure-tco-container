@@ -1175,6 +1175,24 @@ body.theme-kyndryl {
               <select id="param-growth" style="padding:9px 28px 9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.82rem;font-family:var(--font-mono);cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 12 12%22><path fill=%22%238a8070%22 d=%22M6 8L1 3h10z%22/></svg>');background-repeat:no-repeat;background-position:right 9px center;"></select>
             </div>
 
+            <!-- Growth / migration period -->
+            <div style="display:flex;flex-direction:column;gap:7px;min-width:130px;">
+              <label style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Growth period</label>
+              <select id="param-comp-term" style="padding:9px 28px 9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.82rem;font-family:var(--font-ui);cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 12 12%22><path fill=%22%238a8070%22 d=%22M6 8L1 3h10z%22/></svg>');background-repeat:no-repeat;background-position:right 9px center;">
+                <option value="month" selected>Month</option>
+                <option value="quarter">Quarter</option>
+              </select>
+            </div>
+
+            <!-- Migration pacing unit -->
+            <div style="display:flex;flex-direction:column;gap:7px;min-width:130px;">
+              <label style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Migration unit</label>
+              <select id="param-comp-unit" style="padding:9px 28px 9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.82rem;font-family:var(--font-ui);cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 12 12%22><path fill=%22%238a8070%22 d=%22M6 8L1 3h10z%22/></svg>');background-repeat:no-repeat;background-position:right 9px center;">
+                <option value="time" selected>Time</option>
+                <option value="capacity">Capacity</option>
+              </select>
+            </div>
+
             <!-- DRR (Dedicated: slider) -->
             <div id="field-drr-slider" style="display:flex;flex-direction:column;gap:7px;">
               <div style="display:flex;justify-content:space-between;align-items:baseline;">
@@ -5160,13 +5178,15 @@ function resetGuiToDefaults(delayMs) {
       use_vm_inclusion_list:           document.getElementById("param-use-vm-inclusion").checked ? 1 : 0,
       frequency:                       document.getElementById("param-frequency").value,
       // ── Compounding growth migration ──
-      // The compounding growth + migration model is always used now; it is driven
-      // by the single Growth (yearly) dropdown above. Term/unit/cost use defaults
-      // (the Migration view controls the schedule, pace, and per-TiB cost at review).
+      // The compounding growth + migration model is always used now; the growth
+      // amount comes from the single Growth (yearly) dropdown, the compounding
+      // period from Growth period, and the pacing basis from Migration unit. The
+      // per-TiB migration cost defaults here (set the schedule/pace in the
+      // Migration view at review time).
       compounding_growth:              true,
       compounding_growth_amount:       parseFloat(document.getElementById("param-growth").value) / 100,
-      growth_term:                     "month",
-      migration_unit:                  "time",
+      growth_term:                     document.getElementById("param-comp-term").value,
+      migration_unit:                  document.getElementById("param-comp-unit").value,
       migration_cost_per_tib:          260,
     };
   };
