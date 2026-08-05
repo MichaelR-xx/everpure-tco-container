@@ -2098,9 +2098,9 @@ body.theme-kyndryl {
               <div class="card" style="padding:16px 20px;">
                 <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px;">
                   <span style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Migration Evaluation</span>
-                  <label style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-left:6px;">Months to complete</label>
-                  <input type="number" id="tco-mig-months" value="0" min="0" max="60" step="1" title="Months to complete the migration (0 = no migration, max 60). Adjusts capacity/month automatically." style="width:90px;padding:7px 9px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:.78rem;font-family:var(--font-mono);box-sizing:border-box;" />
-                  <label style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Capacity / month (TiB)</label>
+                  <label id="lbl-mig-periods" style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-left:6px;">Months to complete</label>
+                  <input type="number" id="tco-mig-months" value="0" min="0" max="60" step="1" title="Periods to complete the migration (0 = no migration, max 60). Adjusts capacity/period automatically." style="width:90px;padding:7px 9px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:.78rem;font-family:var(--font-mono);box-sizing:border-box;" />
+                  <label id="lbl-mig-cap" style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Capacity / month (TiB)</label>
                   <input type="number" id="tco-cap-per-month" value="0" min="0" step="1" title="Original capacity migrated per month, in TiB (0 = no migration). Adjusts months automatically; minimum is the value that completes in 60 months." style="width:110px;padding:7px 9px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:.78rem;font-family:var(--font-mono);box-sizing:border-box;" />
                   <button class="btn-sm save" id="btn-tco-evaluate" style="padding:8px 16px;white-space:nowrap;">▶ Evaluate</button>
                   <span style="width:1px;height:24px;background:var(--border);"></span>
@@ -6108,6 +6108,7 @@ function resetGuiToDefaults(delayMs) {
     selectedRun = r;
     updateEffSelector(r);    // show/refresh the efficiency-sibling selector
     updateCompoundCard();    // show/hide the compounding-migration card for this run
+    updateMigPeriodLabels(); // relabel the migration pace fields to the run's growth period
     evalMonthByGroup = {};   // reset migration months when switching runs
     migPrecedence = {}; migOrder = {};   // reset per-group migration order
     projData = null;         // reset projection until this run's is loaded
@@ -6439,14 +6440,35 @@ function resetGuiToDefaults(delayMs) {
     }).catch(() => { /* non-fatal */ });
   }
 
+  // The migration view's pace fields are expressed in the run's growth PERIOD
+  // (month, or quarter when the run was generated with a quarterly Growth period).
+  // mpp = months per period (3 for quarter, 1 for month). The backend schedule is
+  // metered per month, so we convert the per-period capacity to per-month there.
+  function migPeriod() {
+    const t = (selectedRun && selectedRun.params && selectedRun.params.growth_term) || "month";
+    return (t === "quarter")
+      ? { unit: "quarter", plural: "Quarters", mpp: 3 }
+      : { unit: "month",   plural: "Months",   mpp: 1 };
+  }
+  // Relabel the Migration Evaluation fields to the run's growth period.
+  function updateMigPeriodLabels() {
+    const P = migPeriod();
+    const lp = $("lbl-mig-periods"); if (lp) lp.textContent = `${P.plural} to complete`;
+    const lc = $("lbl-mig-cap");     if (lc) lc.textContent = `Capacity / ${P.unit} (TiB)`;
+    const mo = $("tco-mig-months");  if (mo) mo.title = `${P.plural} to complete the migration (0 = no migration, max 60). Adjusts capacity/${P.unit} automatically.`;
+    const cp = $("tco-cap-per-month"); if (cp) cp.title = `Original capacity migrated per ${P.unit}, in TiB (0 = no migration). Adjusts ${P.plural.toLowerCase()} automatically; minimum completes within 60 ${P.plural.toLowerCase()}.`;
+    const es = $("tco-eval-summary");
+    if (es && /^Set a capacity/.test(es.textContent))
+      es.innerHTML = `Set a capacity / ${P.unit} (TiB) and click <strong>Evaluate</strong> to build a migration schedule.`;
+  }
   function migrationParams() {
     return {
       min_savings_rate:      num($("tco-min-savings").value) / 100,
       everpure_discount:     num($("tco-everpure-discount").value) / 100,
       partner_margin:        num($("tco-partner-margin").value) / 100,
       azure_native_discount: num($("tco-azure-discount").value) / 100,
-      // Input is in TiB; the engine expects GiB.
-      capacity_per_month:    num($("tco-cap-per-month").value) * 1024,
+      // Field is TiB per growth-period; the engine meters GiB per MONTH.
+      capacity_per_month:    num($("tco-cap-per-month").value) * 1024 / migPeriod().mpp,
       precedence:            migPrecedence,
       order:                 migOrder,
     };
@@ -7472,7 +7494,7 @@ function resetGuiToDefaults(delayMs) {
     if (mode === "parsed") populateParsedGroups();
     if (mode === "advanced") loadDfGroups();
     if (mode === "downloads") loadDownloads();
-    if (mode === "migration") { renderMigrationControls(); loadMigrationPlans(); updateCompoundCard(); }
+    if (mode === "migration") { renderMigrationControls(); loadMigrationPlans(); updateCompoundCard(); updateMigPeriodLabels(); }
     if (mode === "ramp") { loadRampPlanOptions(); renderRamp(); }
     if (mode === "consolidation") renderConsolNegList();
     // Refresh the growth-view plan dropdown each time so plans saved/deleted in
@@ -8254,10 +8276,11 @@ function resetGuiToDefaults(delayMs) {
       if (g.precedence) migPrecedence[gid] = String(g.precedence).toLowerCase();
       if (g.order != null && g.order !== "") migOrder[gid] = g.order;
     });
-    // capacity/month from the plan (months + floor are re-derived by recompute)
+    // capacity/period from the plan (months + floor are re-derived by recompute).
+    // Stored value is per-MONTH; the field shows per-period, so scale up by mpp.
     if (p.capacity_per_month_TiB != null && !isNaN(p.capacity_per_month_TiB)) {
       migSyncing = true;
-      $("tco-cap-per-month").value = +Number(p.capacity_per_month_TiB).toFixed(2);
+      $("tco-cap-per-month").value = +(Number(p.capacity_per_month_TiB) * migPeriod().mpp).toFixed(2);
       migSyncing = false;
     }
     recompute();               // re-derive group alignment + months from the applied commercials
