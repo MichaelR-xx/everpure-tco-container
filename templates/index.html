@@ -1954,7 +1954,7 @@ body.theme-kyndryl {
             </div>
 
             <!-- Overall summary -->
-            <div class="card" style="padding:16px 20px;">
+            <div class="card" id="tco-overall-summary" style="padding:16px 20px;">
               <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:12px;">Overall Results for Year 1 <span id="tco-included-note" style="text-transform:none;letter-spacing:0;font-weight:400;"></span></div>
               <div id="tco-overall-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;"></div>
             </div>
@@ -2098,6 +2098,7 @@ body.theme-kyndryl {
               <div class="card" style="padding:16px 20px;">
                 <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px;">
                   <span style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Migration Evaluation</span>
+                  <span id="tco-mig-total" style="font-size:.72rem;color:var(--muted);" title="Total original provisioned capacity of the included groups — the amount being migrated."></span>
                   <label id="lbl-mig-periods" style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-left:6px;">Months to complete</label>
                   <input type="number" id="tco-mig-months" value="0" min="0" max="60" step="1" title="Periods to complete the migration (0 = no migration, max 60). Adjusts capacity/period automatically." style="width:90px;padding:7px 9px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:.78rem;font-family:var(--font-mono);box-sizing:border-box;" />
                   <label id="lbl-mig-cap" style="font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Capacity / month (TiB)</label>
@@ -6460,6 +6461,13 @@ function resetGuiToDefaults(delayMs) {
     const es = $("tco-eval-summary");
     if (es && /^Set a capacity/.test(es.textContent))
       es.innerHTML = `Set a capacity / ${P.unit} (TiB) and click <strong>Evaluate</strong> to build a migration schedule.`;
+    updateMigTotal();
+  }
+  // Show the total ORIGINAL capacity of the migration set (the amount being migrated).
+  function updateMigTotal() {
+    const el = $("tco-mig-total"); if (!el) return;
+    const t = migTotalTiB();
+    el.textContent = t > 0 ? `· ${Math.round(t).toLocaleString()} TiB original to migrate` : "";
   }
   function migrationParams() {
     return {
@@ -6487,6 +6495,7 @@ function resetGuiToDefaults(delayMs) {
     capEl.min = minc ? minc.toFixed(2) : 0;
     // Keep the two inputs consistent with whatever capacity is currently set.
     syncMigFromCapacity();
+    updateMigTotal();
   }
   function setMigInputs(months, capTiB) {
     migSyncing = true;
@@ -7490,6 +7499,8 @@ function resetGuiToDefaults(delayMs) {
     $("tco-view-advanced").style.display  = (mode === "advanced")  ? "flex" : "none";
     $("tco-view-downloads").style.display = (mode === "downloads") ? "flex" : "none";
     $("tco-view-consolidation").style.display = (mode === "consolidation") ? "flex" : "none";
+    // The Overall Results (Year 1) summary isn't relevant on the Migration view.
+    { const os = $("tco-overall-summary"); if (os) os.style.display = (mode === "migration") ? "none" : ""; }
     // The generic per-view download button applies to Data/Graphs/Advanced only
     // (Parsed Data, Migration, Consolidation and Ramp have their own buttons).
     $("btn-tco-view-download").style.display = (mode === "downloads" || mode === "migration" || mode === "consolidation" || mode === "parsed" || mode === "ramp") ? "none" : "";
@@ -8770,6 +8781,15 @@ function resetGuiToDefaults(delayMs) {
     meta = meta || {};
     const summaryEl = $("tco-proj-summary");
     const perLabel = { monthly: "per month", quarterly: "per quarter", yearly: "per year" }[meta.frequency] || "per period";
+    // When a migration plan is applied, find the breakeven period — the first period
+    // where cumulative savings (net of the one-time migration cost) turn positive.
+    let breakevenTxt = "";
+    if (meta.migration) {
+      const be = series.find(s => (s.cumulative_savings || 0) >= 0);
+      breakevenTxt = be
+        ? ` · <strong style="color:var(--success,#7ab87a);">Breakeven at ${escHtml(String(be.label))}</strong> — cumulative savings cover the migration cost from here on.`
+        : ` · <strong style="color:var(--warning,#d97706);">Breakeven not reached within the ${meta.years}-year horizon.</strong>`;
+    }
     summaryEl.innerHTML =
       `${((meta.yearly_growth || 0) * 100).toFixed(0)}%/yr growth · ${escHtml(meta.frequency || "")} · ` +
       `${meta.years} year(s) · ${series.length} periods · costs shown ${perLabel} · ` +
@@ -8777,7 +8797,8 @@ function resetGuiToDefaults(delayMs) {
       (meta.migration
         ? ` · <strong style="color:var(--accent,#7ab87a);">Migration plan: ${escHtml(meta.migration)}</strong> — Everpure ramps with migration, unmigrated capacity stays on Azure, and each group grows only after it finishes migrating.`
         : "") +
-      (meta.migrationCost ? ` · <strong style="color:var(--warning,#d97706);">Total migration cost: ${fmtUsd(meta.migrationCost)}</strong>` : "");
+      (meta.migrationCost ? ` · <strong style="color:var(--warning,#d97706);">Total migration cost: ${fmtUsd(meta.migrationCost)}</strong>` : "") +
+      breakevenTxt;
     if (!series.length || !meta.included) {
       lastProjTable = null;
       $("tco-proj-graph").innerHTML = "";
