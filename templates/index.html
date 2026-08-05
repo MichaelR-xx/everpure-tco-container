@@ -1175,23 +1175,6 @@ body.theme-kyndryl {
               <select id="param-growth" style="padding:9px 28px 9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.82rem;font-family:var(--font-mono);cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 12 12%22><path fill=%22%238a8070%22 d=%22M6 8L1 3h10z%22/></svg>');background-repeat:no-repeat;background-position:right 9px center;"></select>
             </div>
 
-            <!-- Growth / migration period -->
-            <div style="display:flex;flex-direction:column;gap:7px;min-width:130px;">
-              <label style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Growth period</label>
-              <select id="param-comp-term" style="padding:9px 28px 9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.82rem;font-family:var(--font-ui);cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 12 12%22><path fill=%22%238a8070%22 d=%22M6 8L1 3h10z%22/></svg>');background-repeat:no-repeat;background-position:right 9px center;">
-                <option value="month" selected>Month</option>
-                <option value="quarter">Quarter</option>
-              </select>
-            </div>
-
-            <!-- Migration pacing unit -->
-            <div style="display:flex;flex-direction:column;gap:7px;min-width:130px;">
-              <label style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Migration unit</label>
-              <select id="param-comp-unit" style="padding:9px 28px 9px 11px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.82rem;font-family:var(--font-ui);cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 12 12%22><path fill=%22%238a8070%22 d=%22M6 8L1 3h10z%22/></svg>');background-repeat:no-repeat;background-position:right 9px center;">
-                <option value="time" selected>Time</option>
-                <option value="capacity">Capacity</option>
-              </select>
-            </div>
 
             <!-- DRR (Dedicated: slider) -->
             <div id="field-drr-slider" style="display:flex;flex-direction:column;gap:7px;">
@@ -1454,6 +1437,16 @@ body.theme-kyndryl {
                   <label style="font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Max Volumes / Array</label>
                   <input type="number" id="param-max-vols" placeholder="not set" min="1" max="999" step="1" style="width:100%;padding:7px 9px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:.78rem;font-family:var(--font-mono);box-sizing:border-box;" />
                   <span style="font-size:.6rem;color:var(--muted);">Leave blank (“not set”) to disable; integers &lt; 1000</span>
+                </div>
+
+                <!-- Growth / migration compounding period -->
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                  <label style="font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Growth Period</label>
+                  <select id="param-comp-term" style="width:100%;padding:7px 9px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:.78rem;font-family:var(--font-ui);box-sizing:border-box;cursor:pointer;">
+                    <option value="month" selected>Month</option>
+                    <option value="quarter">Quarter</option>
+                  </select>
+                  <span style="font-size:.6rem;color:var(--muted);">Compounding period for growth &amp; migration</span>
                 </div>
 
               </div><!-- end advanced grid -->
@@ -5186,7 +5179,7 @@ function resetGuiToDefaults(delayMs) {
       compounding_growth:              true,
       compounding_growth_amount:       parseFloat(document.getElementById("param-growth").value) / 100,
       growth_term:                     document.getElementById("param-comp-term").value,
-      migration_unit:                  document.getElementById("param-comp-unit").value,
+      migration_unit:                  "time",
       migration_cost_per_tib:          260,
     };
   };
@@ -6479,26 +6472,44 @@ function resetGuiToDefaults(delayMs) {
     $("tco-cap-per-month").value = capTiB;
     migSyncing = false;
   }
-  // Months changed -> derive capacity/month.
+  // Both fields are two views of the same thing and BOTH are editable. While the
+  // user types in one, we derive the OTHER live but never rewrite the field being
+  // edited (rewriting it mid-keystroke — e.g. snapping to the min-capacity floor —
+  // is what made the capacity field feel un-editable). Clamping/flooring happens on
+  // blur (the change event) via the clamp* handlers below.
+  function setPartner(id, val) { migSyncing = true; $(id).value = val; migSyncing = false; }
+
+  // Months edited -> derive capacity/month (leave the months field as typed).
   function syncMigFromMonths() {
     if (migSyncing) return;
     const total = migTotalTiB();
     let m = Math.round(num($("tco-mig-months").value));
-    m = Math.max(0, Math.min(60, m));
-    if (m <= 0) { setMigInputs(0, 0); return; }          // 0 = no migration
-    const cap = total > 0 ? +(total / m).toFixed(2) : 0;
-    setMigInputs(m, cap);
+    if (!(m > 0)) { setPartner("tco-cap-per-month", 0); return; }   // 0 = no migration
+    m = Math.min(60, m);
+    setPartner("tco-cap-per-month", total > 0 ? +(total / m).toFixed(2) : 0);
   }
-  // Capacity changed -> derive months (clamped to <=60 via the min-capacity floor).
+  // Capacity edited -> derive months (leave the capacity field as typed).
   function syncMigFromCapacity() {
     if (migSyncing) return;
     const total = migTotalTiB();
+    const cap = num($("tco-cap-per-month").value);
+    if (!(cap > 0)) { setPartner("tco-mig-months", 0); return; }    // 0 = no migration
+    setPartner("tco-mig-months", total > 0 ? Math.min(60, Math.ceil(total / cap)) : 0);
+  }
+  // On blur: clamp the edited field to valid bounds, then re-derive its partner.
+  function clampMigMonths() {
+    let m = Math.round(num($("tco-mig-months").value));
+    m = Math.max(0, Math.min(60, m));
+    setPartner("tco-mig-months", m);   // write back the clamped value (guarded)
+    syncMigFromMonths();
+  }
+  function clampMigCapacity() {
     let cap = num($("tco-cap-per-month").value);
-    if (cap <= 0) { setMigInputs(0, 0); return; }         // 0 = no migration
+    if (cap < 0) cap = 0;
     const minc = migMinCapTiB();
-    if (minc && cap < minc) cap = +minc.toFixed(2);        // floor: complete within 60 months
-    const months = (total > 0 && cap > 0) ? Math.min(60, Math.ceil(total / cap)) : 0;
-    setMigInputs(months, cap);
+    if (cap > 0 && minc && cap < minc) cap = +minc.toFixed(2);   // floor: complete within 60 months
+    setPartner("tco-cap-per-month", cap);
+    syncMigFromCapacity();
   }
 
   async function evaluateMigration() {
@@ -8920,6 +8931,8 @@ function resetGuiToDefaults(delayMs) {
   $("btn-tco-excluded-csv").addEventListener("click", downloadExcludedCsv);
   $("tco-mig-months").addEventListener("input", syncMigFromMonths);
   $("tco-cap-per-month").addEventListener("input", syncMigFromCapacity);
+  $("tco-mig-months").addEventListener("change", clampMigMonths);
+  $("tco-cap-per-month").addEventListener("change", clampMigCapacity);
   $("btn-tco-mig-save").addEventListener("click", saveMigrationPlan);
   $("btn-tco-mig-plans-refresh").addEventListener("click", loadMigrationPlans);
   $("tco-proj-migplan").addEventListener("change", (e) => selectProjMigPlan(e.target.value));
