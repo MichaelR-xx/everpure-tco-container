@@ -2541,10 +2541,15 @@ def tco_compounding_migration():
     for t in range(1, horizon + 1):
         f = (1.0 + periodic) ** (t - 1)
         p_az = p_ev = p_mig = p_cap = p_capmig = base_az = 0.0
+        # Azure cost decreases in proportion to the capacity migrated. It uses the
+        # SAME lagged ramp as the On Azure MD capacity (migrated_by(t-1)), so the cost
+        # drop for capacity moved in a period lands the FOLLOWING period. Excluded
+        # groups (never migrated) stay at full Azure cost.
+        on_frac = ((T_mig - _migrated_by(t - 1)) / T_mig) if T_mig > 0 else 0.0
         for g in groups:
             cap_t = g["cap_gib"] * f                       # grown ORIGINAL capacity (GiB)
             ms, md = g["mig_start"], g["mig_done"]
-            az = g["azure"] * f if (ms is None or t <= md) else 0.0
+            az = (g["azure"] * f) if ms is None else (g["azure"] * f * on_frac)
             ev = g["everpure"] * f if (ms is not None and t >= ms) else 0.0
             mig = (cap_t / 1024.0) * cost_per_tib if (ms is not None and t == ms) else 0.0
             tot = az + ev + mig
