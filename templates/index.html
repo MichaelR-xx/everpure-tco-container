@@ -2104,9 +2104,9 @@ body.theme-kyndryl {
               <div class="card" style="padding:16px 20px;">
                 <div style="display:flex;align-items:center;justify-content:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
                   <button class="btn-sm save" id="btn-tco-computes-csv" style="padding:6px 12px;white-space:nowrap;display:none;">⬇ Download CSV</button>
-                  <span style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Compute Migration by Month</span>
+                  <span id="tco-computes-title" style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);">Compute Migration by Month</span>
                 </div>
-                <div style="font-size:.66rem;color:var(--muted);margin-bottom:10px;">Which compute instances migrate each month (spread by capacity for multi-month groups). Volumes with no compute name are reported as “unknown hosts”. Evaluate a schedule to populate.</div>
+                <div id="tco-computes-desc" style="font-size:.66rem;color:var(--muted);margin-bottom:10px;">Which compute instances migrate each month (spread by capacity for multi-month groups). Volumes with no compute name are reported as “unknown hosts”. Evaluate a schedule to populate.</div>
                 <div id="tco-mig-computes-area" style="overflow-x:auto;"></div>
               </div>
 
@@ -6448,6 +6448,10 @@ function resetGuiToDefaults(delayMs) {
     const es = $("tco-eval-summary");
     if (es && /^Set a capacity/.test(es.textContent))
       es.innerHTML = `Set a capacity / ${P.unit} (TiB) and click <strong>Evaluate</strong> to build a migration schedule.`;
+    const noun = P.unit === "quarter" ? "Quarter" : "Month";
+    const ct = $("tco-computes-title"); if (ct) ct.textContent = `Compute Migration by ${noun}`;
+    const cd = $("tco-computes-desc");
+    if (cd) cd.textContent = `Which compute instances migrate each ${P.unit} (spread by capacity for multi-${P.unit} groups). Volumes with no compute name are reported as “unknown hosts”. Evaluate a schedule to populate.`;
     updateMigTotal();
   }
   // Show the total ORIGINAL capacity of the migration set (the amount being migrated).
@@ -6581,7 +6585,7 @@ function resetGuiToDefaults(delayMs) {
     const params = migrationParams();
     const exCard = $("tco-mig-excluded-card");
     if (!(params.capacity_per_month > 0)) {
-      area.innerHTML = `<div style="color:var(--muted);font-size:.8rem;">No migration — set a schedule above to see which computes migrate each month.</div>`;
+      area.innerHTML = `<div style="color:var(--muted);font-size:.8rem;">No migration — set a schedule above to see which computes migrate each period.</div>`;
       csvBtn.style.display = "none"; lastComputeMonths = null;
       if (exCard) exCard.style.display = "none"; return;
     }
@@ -6610,12 +6614,45 @@ function resetGuiToDefaults(delayMs) {
         ? `<div style="font-size:.72rem;color:var(--warning,#d97706);margin-top:2px;">${Math.round(g.unknown.capacity).toLocaleString()} GiB across ${g.unknown.volumes} volume(s) with unknown hosts</div>` : "";
       h += `<div style="margin-bottom:10px;"><div style="font-size:.72rem;font-weight:700;margin-bottom:4px;">Group ${escHtml(g.group)}</div>${comps || '<span style="font-size:.72rem;color:var(--muted);">(no named computes)</span>'}${unkLine}</div>`;
     });
-    return h || `<div style="font-size:.72rem;color:var(--muted);">Nothing migrating this month.</div>`;
+    return h || `<div style="font-size:.72rem;color:var(--muted);">Nothing migrating this period.</div>`;
+  }
+
+  // The backend schedules compute migration per MONTH. For a quarterly-period run
+  // we fold each set of `mpp` months into one period, merging groups/computes and
+  // summing capacity/volumes, so the view reflects the chosen migration period.
+  function aggregateComputePeriods(months, mpp) {
+    if (!mpp || mpp <= 1) return months;
+    const byP = new Map();
+    months.forEach(m => {
+      const p = Math.ceil((m.month || 1) / mpp);
+      let e = byP.get(p);
+      if (!e) { e = { month: p, capacity: 0, unknown_capacity: 0, unknown_volumes: 0, _g: new Map() }; byP.set(p, e); }
+      e.capacity += m.capacity || 0; e.unknown_capacity += m.unknown_capacity || 0; e.unknown_volumes += m.unknown_volumes || 0;
+      (m.groups || []).forEach(g => {
+        let gg = e._g.get(g.group);
+        if (!gg) { gg = { group: g.group, _c: new Map(), unknown: { volumes: 0, capacity: 0 } }; e._g.set(g.group, gg); }
+        (g.computes || []).forEach(c => {
+          const cur = gg._c.get(c.name) || { name: c.name, capacity: 0, volumes: 0 };
+          cur.capacity += c.capacity || 0; cur.volumes += c.volumes || 0; gg._c.set(c.name, cur);
+        });
+        if (g.unknown) { gg.unknown.volumes += g.unknown.volumes || 0; gg.unknown.capacity += g.unknown.capacity || 0; }
+      });
+    });
+    return [...byP.values()].sort((a, b) => a.month - b.month).map(e => {
+      const groups = [...e._g.values()].map(gg => ({ group: gg.group, computes: [...gg._c.values()], unknown: gg.unknown }));
+      const names = new Set(); groups.forEach(gg => gg.computes.forEach(c => names.add(c.name)));
+      return { month: e.month, capacity: e.capacity, unknown_capacity: e.unknown_capacity,
+               unknown_volumes: e.unknown_volumes, compute_count: names.size, groups };
+    });
   }
 
   function renderComputeMonths(data) {
     const area = $("tco-mig-computes-area");
     const csvBtn = $("btn-tco-computes-csv");
+    const P = migPeriod();
+    const noun = P.unit === "quarter" ? "Quarter" : "Month";
+    // Fold months into the run's migration period and reuse everywhere (incl. CSV).
+    data = { ...data, months: aggregateComputePeriods(data.months || [], P.mpp), _noun: noun };
     lastComputeMonths = data;
     if (!data || !(data.months || []).length) {
       area.innerHTML = `<div style="color:var(--muted);font-size:.8rem;">No compute migration to show.</div>`;
@@ -6640,7 +6677,7 @@ function resetGuiToDefaults(delayMs) {
         ? `${Math.round(m.unknown_capacity).toLocaleString()} GiB / ${m.unknown_volumes} vol` : "—";
       html += `<div style="border:1px solid var(--border);border-radius:8px;margin-bottom:8px;overflow:hidden;">
         <div class="mig-comp-hdr" data-m="${m.month}" style="display:flex;align-items:center;gap:16px;padding:9px 14px;cursor:pointer;background:var(--surface2);flex-wrap:wrap;">
-          <strong style="font-family:var(--font-mono);">Month ${m.month}</strong>
+          <strong style="font-family:var(--font-mono);">${noun} ${m.month}</strong>
           <span style="font-size:.72rem;color:var(--muted);">${m.compute_count} compute${m.compute_count === 1 ? "" : "s"}</span>
           <span style="font-size:.72rem;color:var(--muted);">${Math.round(m.capacity).toLocaleString()} GiB</span>
           <span style="font-size:.72rem;color:var(--muted);">unknown hosts: ${unk}</span>
@@ -6725,7 +6762,7 @@ function resetGuiToDefaults(delayMs) {
   function downloadComputeCsv() {
     if (!lastComputeMonths || !(lastComputeMonths.months || []).length) return;
     const esc = v => { const s = String(v == null ? "" : v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-    const lines = ["Month,Group,Compute,Capacity_GiB,Volumes,Type"];
+    const lines = [`${lastComputeMonths._noun || "Month"},Group,Compute,Capacity_GiB,Volumes,Type`];
     lastComputeMonths.months.forEach(m => (m.groups || []).forEach(g => {
       (g.computes || []).forEach(c => lines.push([m.month, esc(g.group), esc(c.name), Math.round(c.capacity), c.volumes, "compute"].join(",")));
       if (g.unknown && (g.unknown.volumes > 0 || g.unknown.capacity > 0))
