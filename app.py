@@ -2522,15 +2522,23 @@ def tco_compounding_migration():
     for t in range(1, horizon + 1):
         f = (1.0 + periodic) ** (t - 1)
         p_az = p_ev = p_mig = p_cap = p_capmig = base_az = 0.0
+        p_cap_az = p_cap_ev = 0.0     # ORIGINAL capacity by location this period
         for g in groups:
-            cap_t = g["cap_gib"] * f
+            cap_t = g["cap_gib"] * f                       # grown ORIGINAL capacity (GiB)
             ms, md = g["mig_start"], g["mig_done"]
             az = g["azure"] * f if (ms is None or t <= md) else 0.0
             ev = g["everpure"] * f if (ms is not None and t >= ms) else 0.0
             mig = (cap_t / 1024.0) * cost_per_tib if (ms is not None and t == ms) else 0.0
             tot = az + ev + mig
+            # Capacity location: a group's original capacity lives in Everpure cloud
+            # once its migration has started (t >= ms), otherwise on Azure managed disk.
+            in_everpure = (ms is not None and t >= ms)
+            if in_everpure: p_cap_ev += cap_t
+            else:           p_cap_az += cap_t
             g["_cum"] += tot
             g["_series"].append({"period": t, "cap_tib": round(cap_t/1024.0, 3),
+                                 "cap_azure_tib": round(0.0 if in_everpure else cap_t/1024.0, 3),
+                                 "cap_everpure_tib": round(cap_t/1024.0 if in_everpure else 0.0, 3),
                                  "azure": round(az, 2), "everpure": round(ev, 2),
                                  "migration": round(mig, 2), "total": round(tot, 2),
                                  "cum_total": round(g["_cum"], 2)})
@@ -2544,6 +2552,8 @@ def tco_compounding_migration():
             "migration": round(p_mig, 2), "total": round(p_tot, 2),
             "baseline_azure": round(base_az, 2), "savings": round(sav, 2),
             "cap_tib": round(p_cap/1024.0, 2), "cap_migrated_tib": round(p_capmig/1024.0, 3),
+            "cap_azure_tib": round(p_cap_az/1024.0, 2),        # ORIGINAL cap still on Azure MD
+            "cap_everpure_tib": round(p_cap_ev/1024.0, 2),     # ORIGINAL cap moved to Everpure
             "cum_total": round(cum_total, 2), "cum_savings": round(cum_sav, 2),
             "cum_migration": round(cum_mig, 2),
         })
